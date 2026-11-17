@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Leader Plan — Seguros</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="login" class="ml-login" hidden>
+  <form id="login-form" class="ml-card" autocomplete="on">
+    <p class="eyebrow">MARKET LEADER PLAN</p>
+    <h1>Acceso</h1>
+    <label>Correo<input id="login-email" type="email" required autocomplete="username"></label>
+    <label>Contraseña<input id="login-pass" type="password" required autocomplete="current-password"></label>
+    <button type="submit" class="add-client-btn">Entrar</button>
+    <p id="login-msg" class="ml-msg" role="alert"></p>
+  </form>
+</div>
+<div id="config-error" class="ml-login" hidden>
+  <div class="ml-card">
+    <h1>Falta la configuración</h1>
+    <p>Edita <code>config.js</code> con la URL y la clave anónima (anon / publishable) de tu proyecto de Supabase. Pasos en el README.</p>
+  </div>
+</div>
+<div id="app" hidden>
+  <div class="ml-bar">
+    <span id="ml-user"></span>
+    <button type="button" id="ml-logout" class="add-client-btn">Salir</button>
+  </div>
+<section class="mlp-section" id="mlp-section">
+    <div class="mlp-head">
+      <div>
+        <p class="eyebrow">SEGUIMIENTO</p>
+        <h2 class="mlp-title">Market Leader Plan</h2>
+        <p class="mlp-sub">Listado de tareas y seguimiento del plan de acción del Market Leader.</p>
+        <p id="mlp-status" class="mlp-status-msg"></p>
+      </div>
+      <button type="button" class="add-client-btn" id="btnAddTask">+ Añadir tarea</button>
+      <button type="button" class="add-client-btn" id="btnExportTasks" style="margin-left:6px;">⬇ Exportar histórico</button>
+      <button type="button" class="add-client-btn" id="btnImportTasks" style="margin-left:6px;">⬆ Importar histórico</button>
+      <input type="file" id="mlpImportFile" accept="application/json" style="display:none;">
+    </div>
+
+    <div class="mlp-body" style="--accent:var(--gold-ink);--accent-text:var(--cream-text);">
+      <div class="tab-nav mlp-tab-nav">
+        <button class="tab-btn active" data-tab="mlp-list">Listado de tareas</button>
+        <button class="tab-btn" data-tab="mlp-gantt">Diagrama de Gantt</button>
+        <button class="tab-btn" data-tab="mlp-am">Seguimiento VP por AM</button>
+      </div>
+
+      <div id="mlp-list" class="tab-pane">
+        <div id="mlp-tasks"></div>
+      </div>
+
+      <div id="mlp-gantt" class="tab-pane" style="display:none">
+        <div id="mlp-gantt-chart"></div>
+      </div>
+
+<div id="mlp-am" class="tab-pane" style="display:none">
+  <div id="pv">
+    <div class="pv-head">
+      <p class="pv-sub">Qué tiene que hacer cada Account Manager en sus cuentas, separado por VP (Insurance Core Evolution e Insurance AI): convocar reunión, presentar la VP y enviar propuesta, con fecha y estado. El plan de IA sigue el plan comercial por olas.</p>
+      <div class="asof" id="pv-asof"></div>
+    </div>
+    <div class="kpis" id="pv-kpis"></div>
+    <div class="note" id="pv-amnote"></div>
+    <div class="bar">
+      <label>Responsable <select id="pv-fAm"><option value="">Todos</option></select></label>
+      <label>VP <select id="pv-fVp"><option value="">Todas</option><option value="core">Core Evolution</option><option value="ai">AI</option></select></label>
+      <label>Ola IA <select id="pv-fOla"><option value="">Todas</option><option value="0">Ola 0</option><option value="1">Ola 1</option><option value="2">Ola 2</option><option value="aparcada">Aparcadas</option><option value="descartada">Descartadas</option></select></label>
+      <label>Estado <select id="pv-fSt"><option value="">Todos</option><option>Pendiente</option><option>En curso</option><option>Hecho</option><option>Bloqueado</option><option>Aparcada</option></select></label>
+      <label class="chk"><input type="checkbox" id="pv-fVenc"> Solo cuentas con tareas vencidas</label>
+      <span class="status-msg" id="pv-msg"></span>
+    </div>
+    <div class="tablewrap">
+      <table><colgroup><col style="width:11%"><col style="width:19%"><col style="width:11.67%"><col style="width:11.67%"><col style="width:11.67%"><col style="width:11.67%"><col style="width:11.67%"><col style="width:11.65%"></colgroup><thead><tr id="pv-thead1"></tr><tr id="pv-thead2"></tr></thead><tbody id="pv-tbody"></tbody></table>
+      <div class="empty" id="pv-empty" hidden></div>
+    </div>
+    <div class="add" id="pv-addrow">
+      <input type="text" id="pv-newClient" placeholder="Añadir cliente" aria-label="Nombre del cliente">
+      <input type="text" id="pv-newAm" list="pv-amlist" placeholder="Responsable (AM)" aria-label="Responsable de cuenta">
+      <label class="chk"><input type="checkbox" id="pv-newCore" checked> Core Evolution</label><label class="chk"><input type="checkbox" id="pv-newAi" checked> AI</label>
+      <button class="btn pri" id="pv-addBtn" type="button">Añadir cuenta</button>
+      <datalist id="pv-amlist"></datalist>
+    </div>
+    <div class="legend"><span><b>Vencida</b>: fecha pasada y tarea sin marcar como Hecho.</span><span>Los cambios se guardan solos y los ven todas las personas con acceso.</span></div>
+  </div>
+</div>
+    </div>
+  </section>
+</div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
