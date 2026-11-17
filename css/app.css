@@ -1,4 +1,4 @@
-:root{--bg:#f5f4f1;--card:#fff;--ink:#1d2433;--mute:#6b7385;--line:#e3e1db;--brand:#1f3a5f;--over:#c0392b;--soon:#d98a00;--week:#2f6fb3;--ok:#2e8b57;--r:10px}
+:root{color-scheme:light dark;--bg:#f5f4f1;--card:#fff;--ink:#1d2433;--mute:#6b7385;--line:#e3e1db;--brand:#1f3a5f;--over:#c0392b;--soon:#d98a00;--week:#2f6fb3;--ok:#2e8b57;--r:10px}
 @media (prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1c2029;--ink:#e8eaf0;--mute:#9aa3b5;--line:#2c3240;--brand:#7fa6d8;--over:#ff6b5b;--soon:#f0b429;--week:#6aa5e6;--ok:#52c98a}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -51,9 +51,9 @@ h2{font-size:15px;margin:0 0 10px}
 .list .t{flex:1}.list .m{font-size:12px;color:var(--mute)}
 .pill{display:inline-block;border-radius:99px;padding:1px 8px;font-size:11.5px;border:1px solid var(--line);white-space:nowrap}
 .pill.over{color:var(--over);border-color:var(--over)}.pill.soon{color:var(--soon);border-color:var(--soon)}.pill.week{color:var(--week);border-color:var(--week)}
-.add{display:grid;grid-template-columns:minmax(220px,3fr) repeat(5,minmax(110px,1fr)) auto;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px;margin-bottom:12px}
+.add{display:grid;grid-template-columns:minmax(220px,3fr) repeat(6,minmax(105px,1fr)) auto;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px;margin-bottom:12px}
 .filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-.chips button{font:inherit;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:99px;padding:3px 12px}
+.chips button{font:inherit;cursor:pointer;background:var(--card);color:var(--ink);border:1px solid var(--mute);border-radius:99px;padding:3px 12px}
 .chips button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 @media (prefers-color-scheme:dark){.chips button.on{color:#10151d}}
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r)}
@@ -68,8 +68,8 @@ tr.u-week td:first-child{box-shadow:inset 4px 0 var(--week)}
 tr.u-done td:not(.act){opacity:.5}
 td input.title{width:100%;min-width:220px;border-color:transparent;background:transparent}
 td input.title:hover,td input.title:focus{border-color:var(--line);background:var(--card)}
-td select,td input[type=date]{border-color:transparent;background:transparent;padding:4px}
-td select:hover,td input[type=date]:hover{border-color:var(--line)}
+td select,td input[type=date]{padding:4px 6px}
+td select:hover,td input[type=date]:hover{border-color:var(--brand)}
 td.note{background:var(--bg)}
 td.note textarea{width:100%;min-height:54px}
 .stsel{border-radius:4px;color:#fff;border:0!important;padding:4px 6px}
@@ -86,3 +86,15 @@ body.readonly .add{display:none}
 @media (max-width:900px){.add{grid-template-columns:1fr 1fr}.bar-row{grid-template-columns:100px 1fr 30px}}
 .st-no_aplica{background:transparent}
 .stsel.st-no_aplica{color:var(--mute);border:1px dashed var(--line)!important}
+
+/* icono del calendario: visible en ambos temas */
+input[type=date]::-webkit-calendar-picker-indicator{cursor:pointer}  /* color-scheme del :root: icono claro en tema oscuro y oscuro en claro */
+select option{background:var(--card);color:var(--ink)}
+/* desplegable multiselección */
+.ms{position:relative}
+.msb{font:inherit;cursor:pointer;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:150px;text-align:left}
+.ms.on .msb{border-color:var(--brand);font-weight:600}
+.msp{position:absolute;top:100%;left:0;z-index:10;margin-top:2px;min-width:100%;max-height:300px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.25);padding:4px}
+.msp label{display:flex;gap:6px;align-items:center;padding:4px 8px;white-space:nowrap;cursor:pointer;border-radius:4px}
+.msp label:hover{background:var(--bg)}
+.add .btn.primary{order:2}
