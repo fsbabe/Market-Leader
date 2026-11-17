@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   var ML = window.ML, esc = ML.esc;
-  ML.ui = { tab: 'dashboard', quick: 'abiertas', f: { account: '', owner: '', vp: '', pilar: '', status: '', q: '' }, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null };
+  ML.ui = { tab: 'dashboard', quick: 'abiertas', f: { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }, msOpen: null, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null };
   var $ = function(id){ return document.getElementById(id); };
 
   function opts(list, sel, blank){
@@ -14,6 +14,15 @@
   function peopleOpts(sel, blank){ return opts(ML.s.people.filter(function(p){ return p.active || p.name === sel; }).map(function(p){ return [p.name, p.name]; }), sel, blank); }
   function vpOpts(sel, blank){ return opts(ML.VPS.map(function(v){ return [v.k, v.label]; }), sel, blank); }
   function accName(id){ var a = ML.account(id); return a ? a.name : ''; }
+  // Desplegable de selección múltiple (casillas). Vacío = todos.
+  function ms(key, all, items){
+    var sel = ML.ui.f[key], open = ML.ui.msOpen === key, label;
+    if(!sel.length) label = all;
+    else if(sel.length === 1){ var it = items.filter(function(i){ return i[0] === sel[0]; })[0]; label = it ? it[1] : sel[0]; }
+    else label = sel.length + ' seleccionados';
+    return '<div class="ms' + (sel.length ? ' on' : '') + '"><button type="button" class="msb" data-msb="' + key + '">' + esc(label) + ' ▾</button>' +
+      (open ? '<div class="msp">' + items.map(function(i){ return '<label><input type="checkbox" data-msk="' + key + '" value="' + esc(i[0]) + '"' + (sel.indexOf(i[0]) >= 0 ? ' checked' : '') + '> ' + esc(i[1]) + '</label>'; }).join('') + '</div>' : '') + '</div>';
+  }
   function openTasks(){ return ML.s.tasks.filter(ML.isOpen); }
 
   // Contadores de cabecera (recordatorios en la app)
@@ -95,11 +104,11 @@
     var f = ML.ui.f, q = f.q.trim().toLowerCase();
     var list = ML.s.tasks.filter(function(t){
       if(!passQuick(t, ML.ui.quick)) return false;
-      if(f.account && t.account_id !== f.account) return false;
-      if(f.owner === '__none' ? !!t.owner : (f.owner && t.owner !== f.owner)) return false;
-      if(f.vp && t.vp !== f.vp) return false;
-      if(f.pilar && t.pilar !== f.pilar) return false;
-      if(f.status && t.status !== f.status) return false;
+      if(f.account.length && f.account.indexOf(t.account_id) < 0) return false;
+      if(f.owner.length && f.owner.indexOf(t.owner || '__none') < 0) return false;
+      if(f.vp.length && f.vp.indexOf(t.vp) < 0) return false;
+      if(f.pilar.length && f.pilar.indexOf(t.pilar) < 0) return false;
+      if(f.status.length && f.status.indexOf(t.status) < 0) return false;
       if(q && (t.title + ' ' + accName(t.account_id) + ' ' + (t.owner || '') + ' ' + (t.note || '') + ' ' + (t.scope_text || '')).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
@@ -154,11 +163,11 @@
       '<select id="a-other" title="Si no es de cuenta ni de VP"><option value="">Otro: —</option><option value="partnership">Partnership</option><option value="marketing">Marketing</option></select></form>';
     var chips = '<div class="chips">' + QUICK.map(function(q){ return '<button data-q="' + q[0] + '" class="' + (ML.ui.quick === q[0] ? 'on' : '') + '">' + q[1] + '</button>'; }).join(' ') + '</div>';
     var fl = '<div class="filters">' + chips +
-      '<select data-flt="account">' + accOpts(f.account, 'Todas las cuentas') + '</select>' +
-      '<select data-flt="owner">' + peopleOpts(f.owner, 'Todos los responsables').replace('</option>', '</option><option value="__none"' + (f.owner === '__none' ? ' selected' : '') + '>(sin responsable)</option>') + '</select>' +
-      '<select data-flt="vp">' + vpOpts(f.vp, 'Todas las VP') + '</select>' +
-      '<select data-flt="pilar">' + opts(ML.PILARES, f.pilar, 'Todos los pilares') + '</select>' +
-      '<select data-flt="status">' + opts(ML.STATUS, f.status, 'Todos los estados') + '</select>' +
+      ms('account', 'Todas las cuentas', ML.s.accounts.map(function(a){ return [a.id, a.name]; })) +
+      ms('owner', 'Todos los responsables', [['__none', '(sin responsable)']].concat(ML.s.people.map(function(p){ return [p.name, p.name]; }))) +
+      ms('vp', 'Todas las VP', ML.VPS.map(function(v){ return [v.k, v.label]; })) +
+      ms('pilar', 'Todos los pilares', ML.PILARES) +
+      ms('status', 'Todos los estados', ML.STATUS) +
       '<input data-flt="q" placeholder="Buscar…" value="' + esc(f.q) + '">' +
       '<select id="grp">' + opts([['', 'Sin agrupar'], ['owner', 'Agrupar: responsable'], ['account', 'Agrupar: cuenta'], ['vp', 'Agrupar: VP']], ML.ui.group) + '</select>' +
       '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + list.length + ' tareas</span>' +
@@ -194,14 +203,16 @@
       var t = document.getElementById('a-title'); if(t) t.focus();
     });
     v.querySelectorAll('[data-q]').forEach(function(b){ b.onclick = function(){ ui.quick = b.dataset.q; ML.rerender(); }; });
-    v.querySelectorAll('[data-flt]').forEach(function(el){
-      el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', function(){
-        ui.f[el.dataset.flt] = el.value; var pos = el.selectionStart;
-        ML.rerender(); if(el.tagName === 'INPUT'){ var n = document.querySelector('[data-flt=q]'); n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} }
-      });
-    });
+    v.querySelectorAll('[data-msb]').forEach(function(b){ b.onclick = function(e){ e.stopPropagation(); ui.msOpen = ui.msOpen === b.dataset.msb ? null : b.dataset.msb; ML.rerender(); }; });
+    v.querySelectorAll('[data-msk]').forEach(function(c){ c.onchange = function(){
+      var arr = ui.f[c.dataset.msk], i = arr.indexOf(c.value);
+      if(c.checked && i < 0) arr.push(c.value); else if(!c.checked && i >= 0) arr.splice(i, 1);
+      ML.rerender();
+    }; });
+    var qi = v.querySelector('[data-flt=q]');
+    qi.addEventListener('input', function(){ ui.f.q = qi.value; var pos = qi.selectionStart; ML.rerender(); var n = document.querySelector('[data-flt=q]'); n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} });
     v.querySelector('#grp').onchange = function(e){ ui.group = e.target.value; ML.rerender(); };
-    v.querySelector('#clr').onclick = function(){ ui.f = { account: '', owner: '', vp: '', pilar: '', status: '', q: '' }; ui.quick = 'abiertas'; ui.group = ''; ML.rerender(); };
+    v.querySelector('#clr').onclick = function(){ ui.f = { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }; ui.quick = 'abiertas'; ui.group = ''; ui.msOpen = null; ML.rerender(); };
     v.querySelector('#exp').onclick = exportCsv;
     var impf = v.querySelector('#impf');
     v.querySelector('#imp').onclick = function(){ impf.click(); };
@@ -272,7 +283,7 @@
     v.querySelector('#af-q').oninput = function(e){ ui.accF.q = e.target.value; var p = e.target.selectionStart; ML.rerender(); var n = document.getElementById('af-q'); n.focus(); try{ n.setSelectionRange(p, p); }catch(x){} };
     v.querySelector('#add-acc').onclick = async function(){ var n = prompt('Nombre de la cuenta:'); if(n && n.trim()){ var a = await ML.addAccount(n.trim(), ''); if(a){ ui.openAcc = a.id; ML.rerender(); } } };
     v.querySelector('#add-per').onclick = async function(){ var n = prompt('Nombre del responsable (AM):'); if(n && n.trim()){ await ML.addPerson(n.trim()); ML.rerender(); } };
-    v.querySelectorAll('[data-go]').forEach(function(a){ a.onclick = function(e){ e.preventDefault(); ui.f.account = a.dataset.go; ui.quick = 'abiertas'; ML.setTab('tasks'); }; });
+    v.querySelectorAll('[data-go]').forEach(function(a){ a.onclick = function(e){ e.preventDefault(); ui.f.account = [a.dataset.go]; ui.quick = 'abiertas'; ML.setTab('tasks'); }; });
     var tb = v.querySelector('tbody');
     tb.addEventListener('change', async function(e){
       var el = e.target, tr = el.closest('tr[data-acc]'); 
@@ -305,6 +316,9 @@
     else { v.innerHTML = accountsView(); bindAccounts(v); }
   };
   ML.rerender = ML.render;
+  document.addEventListener('click', function(e){
+    if(ML.ui.msOpen && !e.target.closest('.ms')){ ML.ui.msOpen = null; ML.render(); }
+  });
   ML.setTab = function(t){ ML.ui.tab = t; ML.render(); window.scrollTo(0, 0); };
 
   // Recordatorio al abrir: vencidas y próximas (una vez por sesión del navegador)

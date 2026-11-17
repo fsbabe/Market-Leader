@@ -98,3 +98,4 @@ select option{background:var(--card);color:var(--ink)}
 .msp label{display:flex;gap:6px;align-items:center;padding:4px 8px;white-space:nowrap;cursor:pointer;border-radius:4px}
 .msp label:hover{background:var(--bg)}
 .add .btn.primary{order:2}
+.bar-row.link{cursor:pointer}.bar-row.link:hover .nm{text-decoration:underline}.bar-row.link .bar i:hover{filter:brightness(1.15)}

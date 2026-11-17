@@ -51,8 +51,8 @@
     var names = Object.keys(by).sort(function(a, b){ return by[b].n - by[a].n; });
     var max = names.length ? by[names[0]].n : 1;
     var load = names.map(function(n){
-      var b = by[n], seg = function(k){ return b[k] ? '<i class="seg-' + k + '" style="width:' + (b[k] / max * 100) + '%"></i>' : ''; };
-      return '<div class="bar-row"><span class="nm" title="' + esc(n) + '">' + esc(n) + '</span><div class="bar">' + seg('over') + seg('soon') + seg('week') + seg('later') + seg('none') + '</div><b>' + b.n + '</b></div>';
+      var b = by[n], seg = function(k){ return b[k] ? '<i class="seg-' + k + '" data-seg="' + k + '" style="width:' + (b[k] / max * 100) + '%" title="' + esc(n) + ': ' + b[k] + '"></i>' : ''; };
+      return '<div class="bar-row link" data-own="' + esc(n === '(sin responsable)' ? '__none' : n) + '"><span class="nm" title="' + esc(n) + '">' + esc(n) + '</span><div class="bar">' + seg('over') + seg('soon') + seg('week') + seg('later') + seg('none') + '</div><b>' + b.n + '</b></div>';
     }).join('') || '<p class="empty">Sin tareas abiertas</p>';
     var legend = '<div class="legend"><span><i class="seg-over"></i>Vencida</span><span><i class="seg-soon"></i>≤3 días</span><span><i class="seg-week"></i>≤7 días</span><span><i class="seg-later"></i>Más adelante</span><span><i class="seg-none"></i>Sin fecha</span></div>';
 
@@ -62,8 +62,8 @@
       if(!st.length) return '';
       var c = {}; st.forEach(function(s){ c[s.stage] = (c[s.stage] || 0) + 1; });
       var tot = st.length;
-      var segs = ML.STAGES.filter(function(s){ return c[s[0]]; }).map(function(s){ return '<i class="st-' + s[0] + '" style="width:' + (c[s[0]] / tot * 100) + '%" title="' + esc(s[1]) + ': ' + c[s[0]] + '"></i>'; }).join('');
-      return '<div class="bar-row"><span class="nm">' + esc(v.label) + '</span><div class="bar">' + segs + '</div><b>' + tot + '</b></div>';
+      var segs = ML.STAGES.filter(function(s){ return c[s[0]]; }).map(function(s){ return '<i class="st-' + s[0] + '" data-vp="' + v.k + '" data-st="' + s[0] + '" style="width:' + (c[s[0]] / tot * 100) + '%" title="' + esc(s[1]) + ': ' + c[s[0]] + '"></i>'; }).join('');
+      return '<div class="bar-row link" data-vp="' + v.k + '"><span class="nm">' + esc(v.label) + '</span><div class="bar">' + segs + '</div><b>' + tot + '</b></div>';
     }).join('') || '<p class="empty">Sin cuentas</p>';
     var fl = '<div class="legend">' + ML.STAGES.filter(function(s){ return s[0] !== 'no_aplica'; }).map(function(s){ return '<span><i class="st-' + s[0] + '"></i>' + esc(s[1]) + '</span>'; }).join('') + '</div>';
 
@@ -253,10 +253,16 @@
 
   // ======================= CUENTAS =======================
   function accountsView(){
-    var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '' }), q = f.q.trim().toLowerCase();
-    var list = ML.s.accounts.filter(function(a){ return (!f.am || a.am === f.am) && (!q || a.name.toLowerCase().indexOf(q) >= 0); });
+    var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '', vp: '', stage: '' }), q = f.q.trim().toLowerCase();
+    var list = ML.s.accounts.filter(function(a){ if(f.am && a.am !== f.am) return false;
+      if(q && a.name.toLowerCase().indexOf(q) < 0) return false;
+      if(f.vp || f.stage){
+        return ML.s.stages.some(function(s){ return s.account_id === a.id && (!f.vp || s.vp === f.vp) && (f.stage ? s.stage === f.stage : s.stage !== 'no_aplica'); });
+      }
+      return true; });
     var opn = {}; openTasks().forEach(function(t){ if(t.account_id) opn[t.account_id] = (opn[t.account_id] || 0) + 1; });
     var head = '<div class="filters"><select id="af-am">' + peopleOpts(f.am, 'Todos los AM') + '</select><input id="af-q" placeholder="Buscar cuenta…" value="' + esc(f.q) + '">' +
+      '<select id="af-vp">' + vpOpts(f.vp, 'Todas las VP') + '</select><select id="af-st">' + opts(ML.STAGES, f.stage, 'Todas las etapas') + '</select><button class="btn sm" id="af-clr">Limpiar</button>' +
       '<span class="muted">' + list.length + ' cuentas</span><span style="flex:1"></span>' +
       '<button class="btn sm editable" id="add-acc">+ Cuenta</button><button class="btn sm editable" id="add-per">+ Responsable</button></div>';
     var th = '<thead><tr><th>Cuenta</th><th>AM</th>' + ML.VPS.map(function(v){ return '<th>' + esc(v.label) + '</th>'; }).join('') + '<th>Tareas abiertas</th><th></th></tr></thead>';
@@ -280,6 +286,9 @@
   function bindAccounts(v){
     var ui = ML.ui;
     v.querySelector('#af-am').onchange = function(e){ ui.accF.am = e.target.value; ML.rerender(); };
+    v.querySelector('#af-vp').onchange = function(e){ ui.accF.vp = e.target.value; ML.rerender(); };
+    v.querySelector('#af-st').onchange = function(e){ ui.accF.stage = e.target.value; ML.rerender(); };
+    v.querySelector('#af-clr').onclick = function(){ ui.accF = { am: '', q: '', vp: '', stage: '' }; ML.rerender(); };
     v.querySelector('#af-q').oninput = function(e){ ui.accF.q = e.target.value; var p = e.target.selectionStart; ML.rerender(); var n = document.getElementById('af-q'); n.focus(); try{ n.setSelectionRange(p, p); }catch(x){} };
     v.querySelector('#add-acc').onclick = async function(){ var n = prompt('Nombre de la cuenta:'); if(n && n.trim()){ var a = await ML.addAccount(n.trim(), ''); if(a){ ui.openAcc = a.id; ML.rerender(); } } };
     v.querySelector('#add-per').onclick = async function(){ var n = prompt('Nombre del responsable (AM):'); if(n && n.trim()){ await ML.addPerson(n.trim()); ML.rerender(); } };
@@ -312,6 +321,17 @@
     if(ui.tab === 'dashboard'){
       v.innerHTML = dashboard();
       v.querySelectorAll('[data-quick]').forEach(function(k){ k.onclick = function(){ ui.quick = k.dataset.quick; ML.setTab('tasks'); }; });
+      v.querySelectorAll('[data-own]').forEach(function(r){ r.onclick = function(e){
+        var seg = e.target.closest('[data-seg]'), k = seg ? seg.dataset.seg : '';
+        ui.f = { account: [], owner: [r.dataset.own], vp: [], pilar: [], status: [], q: '' }; ui.group = ''; ui.msOpen = null;
+        ui.quick = k === 'over' ? 'vencidas' : (k === 'soon' || k === 'week') ? 'semana' : k === 'none' ? 'sinfecha' : 'abiertas';
+        ML.setTab('tasks');
+      }; });
+      v.querySelectorAll('.bar-row[data-vp]').forEach(function(r){ r.onclick = function(e){
+        var sg = e.target.closest('[data-st]');
+        ui.accF = { am: '', q: '', vp: r.dataset.vp, stage: sg ? sg.dataset.st : '' };
+        ML.setTab('accounts');
+      }; });
     } else if(ui.tab === 'tasks'){ v.innerHTML = tasksView(); bindTasks(v); }
     else { v.innerHTML = accountsView(); bindAccounts(v); }
   };
