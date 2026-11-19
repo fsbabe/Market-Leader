@@ -171,7 +171,7 @@
       '<input data-flt="q" placeholder="Buscar…" value="' + esc(f.q) + '">' +
       '<select id="grp">' + opts([['', 'Sin agrupar'], ['owner', 'Agrupar: responsable'], ['account', 'Agrupar: cuenta'], ['vp', 'Agrupar: VP']], ML.ui.group) + '</select>' +
       '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + list.length + ' tareas</span>' +
-      '<span style="flex:1"></span><button class="btn sm editable" id="imp">⬆ Importar histórico</button><input type="file" id="impf" accept="application/json" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
+      '<span style="flex:1"></span><button class="btn sm editable" id="imp">⬆ Importar tareas (JSON)</button><input type="file" id="impf" accept="application/json" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
     list.forEach(function(t){
       if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
@@ -220,8 +220,8 @@
       var file = impf.files[0]; if(!file) return;
       try{
         var data = JSON.parse(await file.text()); if(!Array.isArray(data)) throw new Error('El archivo debe contener una lista de tareas');
-        if(!confirm('Importar ' + data.length + ' tareas del histórico?')) return;
-        var n = await ML.importOld(data); ML.toast(n + ' tareas importadas'); ML.rerender();
+        if(!confirm('Importar ' + data.length + ' tareas del archivo?')) return;
+        var r = await ML.importOld(data); ML.toast(r.n + ' tareas importadas' + (r.skipped ? ' · ' + r.skipped + ' omitidas por estar ya en la lista' : ''), r.n === 0 && !r.skipped); ML.rerender();
       }catch(err){ ML.toast('Importación fallida: ' + err.message, true); }
       impf.value = '';
     };

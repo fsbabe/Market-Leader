@@ -164,26 +164,47 @@
   // ---------- Importar el JSON del listado antiguo (botón "Exportar histórico" del artefacto) ----------
   var OLD_STATUS = { 'pendiente': 'pendiente', 'en-curso': 'en_curso', 'bloqueada': 'bloqueada', 'retrasada': 'en_curso', 'hecho': 'hecha' };
   var OLD_VP = { 'Insurance Core Evolution': 'core', 'Insurance AI': 'ai', 'Insurance Everywhere': 'everywhere', 'Insurance RegTech': 'regtech' };
+  var OK_KIND = ['reunion', 'presentar_vp', 'propuesta', 'otro'], OK_VP = ['core', 'ai', 'everywhere', 'regtech'], OK_PRIO = ['alta', 'media', 'baja'];
+  // Acepta dos formatos: el del agente de Copilot {title, account, vp, kind, owner, due, priority, note}
+  // y el del histórico antiguo {text, end, status, priority, pilar, scope, am}. Devuelve {n, skipped}.
   ML.importOld = async function(arr){
-    var n = 0, byName = {};
+    var n = 0, skipped = 0, byName = {}, people = {}, titles = {};
     ML.s.accounts.forEach(function(a){ byName[a.name.toLowerCase()] = a; });
-    var people = {}; ML.s.people.forEach(function(p){ people[p.name] = true; });
+    ML.s.people.forEach(function(p){ people[p.name] = true; });
+    ML.s.tasks.forEach(function(t){ titles[String(t.title).trim().toLowerCase()] = true; });
     for(var i = 0; i < arr.length; i++){
-      var o = arr[i]; if(!o || !o.text) continue;
-      var pilar = o.pilar || 'vp', acc = null, vp = null, scope = '';
-      if(pilar === 'clientes' && o.scope){ acc = byName[String(o.scope).toLowerCase()] || null; if(!acc) scope = o.scope; }
-      else if(pilar === 'vp' && o.scope){ vp = OLD_VP[o.scope] || null; if(!vp) scope = o.scope; }
-      else if(o.scope){ scope = o.scope; }
-      var owner = o.am || o.owner || '', note = '';
-      if(owner && !people[owner]){ note = 'Responsable original: ' + owner; owner = ''; }
-      var due = o.end || '';
-      if(o.recurring && Array.isArray(o.recurDates)){
-        var t = ML.today(); var next = o.recurDates.slice().sort().filter(function(d){ return d >= t; })[0];
-        due = next || o.recurDates.slice().sort().pop() || due; note = (note ? note + ' · ' : '') + 'Recurrente (semanal), repetir a mano';
-      }
-      var added = await ML.addTask({ title: o.text, account_id: acc ? acc.id : null, vp: vp, pilar: pilar, scope_text: scope, owner: owner, due: due || null, priority: o.priority || 'media', note: note, source: 'importado' });
-      if(added){ var st = OLD_STATUS[o.status] || 'pendiente'; if(st !== 'pendiente') await ML.updateTask(added.id, { status: st }); n++; }
+      var o = arr[i]; if(!o) continue;
+      var f;
+      if(o.title){
+        var acc = o.account ? byName[String(o.account).toLowerCase()] : null, note = o.note || '';
+        var owner = o.owner || '';
+        if(owner && !people[owner]){ note = (note ? note + ' · ' : '') + 'Responsable propuesto: ' + owner; owner = ''; }
+        if(o.account && !acc) note = (note ? note + ' · ' : '') + 'Cuenta no reconocida: ' + o.account;
+        var vp = OK_VP.indexOf(o.vp) >= 0 ? o.vp : null;
+        f = { title: String(o.title).trim(), account_id: acc ? acc.id : null, vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes',
+              kind: OK_KIND.indexOf(o.kind) >= 0 ? o.kind : 'otro', owner: owner, due: /^\d{4}-\d{2}-\d{2}$/.test(o.due || '') ? o.due : null,
+              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note, source: 'agente', status: 'pendiente' };
+      } else if(o.text){
+        var pilar = o.pilar || 'vp', acc2 = null, vp2 = null, scope = '';
+        if(pilar === 'clientes' && o.scope){ acc2 = byName[String(o.scope).toLowerCase()] || null; if(!acc2) scope = o.scope; }
+        else if(pilar === 'vp' && o.scope){ vp2 = OLD_VP[o.scope] || null; if(!vp2) scope = o.scope; }
+        else if(o.scope){ scope = o.scope; }
+        var owner2 = o.am || o.owner || '', note2 = '';
+        if(owner2 && !people[owner2]){ note2 = 'Responsable original: ' + owner2; owner2 = ''; }
+        var due = o.end || '';
+        if(o.recurring && Array.isArray(o.recurDates)){
+          var t = ML.today(); var next = o.recurDates.slice().sort().filter(function(d){ return d >= t; })[0];
+          due = next || o.recurDates.slice().sort().pop() || due; note2 = (note2 ? note2 + ' · ' : '') + 'Recurrente (semanal), repetir a mano';
+        }
+        f = { title: o.text, account_id: acc2 ? acc2.id : null, vp: vp2, pilar: pilar, scope_text: scope, kind: 'otro', owner: owner2, due: due || null,
+              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note2, source: 'importado', status: OLD_STATUS[o.status] || 'pendiente' };
+      } else continue;
+      if(!f.title) continue;
+      if(titles[f.title.toLowerCase()]){ skipped++; continue; }
+      var st = f.status; delete f.status;
+      var added = await ML.addTask(f);
+      if(added){ titles[f.title.toLowerCase()] = true; if(st !== 'pendiente') await ML.updateTask(added.id, { status: st }); n++; }
     }
-    return n;
+    return { n: n, skipped: skipped };
   };
 })();
