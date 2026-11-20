@@ -135,3 +135,17 @@ td select.ptag{appearance:none;-webkit-appearance:none;width:auto;max-width:100%
 td select.ptag:hover{filter:brightness(1.08);box-shadow:0 0 0 2px var(--brand)}
 select.ptag option{background:var(--card);color:var(--ink)}
 table.fx td select.ptag{width:auto}
+
+.brand{flex-direction:row;align-items:center;gap:10px}
+.brand .bt{display:flex;flex-direction:column;line-height:1.2}
+img.logo{display:block;border-radius:8px;flex:none}
+img.logo.lg{width:56px;height:56px;margin-bottom:8px}
+
+.modal .box.wide{max-width:1250px}
+table.pv{min-width:900px;table-layout:fixed}
+table.pv td{padding:4px 6px;vertical-align:top}
+table.pv input.title{width:100%;min-width:0;border-color:var(--line);background:var(--card)}
+table.pv td input[data-p=note]{width:100%;min-width:0}
+table.pv td select,table.pv td input[type=date]{width:100%;min-width:0}
+tr.pv-off td{opacity:.5}
+.pv-warn{font-size:11.5px;color:var(--soon);margin-top:2px}

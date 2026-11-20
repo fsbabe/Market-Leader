@@ -217,7 +217,7 @@
       '<input data-flt="q" placeholder="Buscar…" value="' + esc(f.q) + '">' +
       '<select id="grp">' + opts([['', 'Sin agrupar'], ['owner', 'Agrupar: responsable'], ['account', 'Agrupar: cuenta'], ['vp', 'Agrupar: VP']], ML.ui.group) + '</select>' +
       '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + list.length + ' tareas</span>' +
-      '<span style="flex:1"></span><button class="btn sm editable" id="imp">⬆ Importar tareas (JSON)</button><input type="file" id="impf" accept="application/json" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
+      '<span style="flex:1"></span><button class="btn sm editable" id="imp-paste">📋 Pegar tareas</button><button class="btn sm editable" id="imp">⬆ Importar archivo JSON</button><input type="file" id="impf" accept="application/json,.json,text/plain" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
     list.forEach(function(t){
       if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
@@ -262,13 +262,10 @@
     v.querySelector('#exp').onclick = exportCsv;
     var impf = v.querySelector('#impf');
     v.querySelector('#imp').onclick = function(){ impf.click(); };
+    v.querySelector('#imp-paste').onclick = function(){ openPaste(); };
     impf.onchange = async function(){
       var file = impf.files[0]; if(!file) return;
-      try{
-        var data = JSON.parse(await file.text()); if(!Array.isArray(data)) throw new Error('El archivo debe contener una lista de tareas');
-        if(!confirm('Importar ' + data.length + ' tareas del archivo?')) return;
-        var r = await ML.importOld(data); ML.toast(r.n + ' tareas importadas' + (r.skipped ? ' · ' + r.skipped + ' omitidas por estar ya en la lista' : ''), r.n === 0 && !r.skipped); ML.rerender();
-      }catch(err){ ML.toast('Importación fallida: ' + err.message, true); }
+      try{ openPreview(parseImport(await file.text())); }catch(err){ ML.toast('No se pudo leer el archivo: ' + err.message, true); }
       impf.value = '';
     };
     v.querySelectorAll('th[data-sort]').forEach(function(h){ h.onclick = function(){ var k = h.dataset.sort; if(ui.sort === k) ui.dir = -ui.dir; else { ui.sort = k; ui.dir = 1; } ML.rerender(); }; });
@@ -359,6 +356,74 @@
       if(b.hasAttribute('data-detail')){ ui.openAcc = ui.openAcc === id ? null : id; ML.rerender(); }
       else if(confirm('¿Borrar la cuenta y sus etapas? Sus tareas se conservarán sin cuenta.')){ await ML.deleteAccount(id); ui.openAcc = null; ML.rerender(); }
     });
+  }
+
+  // ======================= IMPORTAR: pegar / vista previa editable =======================
+  function parseImport(text){
+    var t = String(text || '').trim();
+    var m = t.match(/```(?:json)?\s*([\s\S]*?)```/i); if(m) t = m[1].trim();            // admite el bloque de código tal como lo devuelve Copilot
+    var i = t.indexOf('['), j = t.lastIndexOf(']'); if(i >= 0 && j > i) t = t.slice(i, j + 1);
+    var data = JSON.parse(t);
+    if(!Array.isArray(data)) throw new Error('debe ser una lista de tareas (JSON entre corchetes)');
+    if(!data.length) throw new Error('la lista está vacía');
+    return data;
+  }
+  function closeModal(){ $('modal').hidden = true; $('modal').innerHTML = ''; ML.importDrafts = null; }
+  function openPaste(){
+    var m = $('modal');
+    m.innerHTML = '<div class="box"><h2>Pegar tareas</h2><p class="muted" style="margin-top:0">Pega aquí el JSON que te devuelve el agente (vale con el bloque de código completo). Lo verás en una vista previa antes de guardar nada.</p>' +
+      '<textarea id="paste-ta" style="width:100%;height:220px;font-family:ui-monospace,monospace;font-size:12px" placeholder=\'[{"title":"…","account":"","vp":"","kind":"otro","owner":"","due":"2026-12-01","priority":"media","note":""}]\'></textarea>' +
+      '<p style="text-align:right;margin-bottom:0"><button class="btn" id="paste-x">Cancelar</button> <button class="btn primary" id="paste-go">Revisar tareas</button></p></div>';
+    m.hidden = false; $('paste-ta').focus();
+    $('paste-x').onclick = closeModal;
+    $('paste-go').onclick = function(){ try{ openPreview(parseImport($('paste-ta').value)); }catch(err){ ML.toast('JSON no válido: ' + err.message, true); } };
+  }
+  function openPreview(arr){
+    var drafts = ML.prepareImport(arr); ML.importDrafts = drafts;
+    var m = $('modal'); m.hidden = false;
+    function paint(){
+      var inc = drafts.filter(function(d){ return d.include; }).length, dups = drafts.filter(function(d){ return d.dup; }).length;
+      var rows = drafts.map(function(d, i){
+        var warn = d.warns.length ? '<div class="pv-warn">⚠ ' + d.warns.map(esc).join(' · ') + '</div>' : '';
+        return '<tr data-i="' + i + '"' + (d.include ? '' : ' class="pv-off"') + '><td><input type="checkbox" data-p="include"' + (d.include ? ' checked' : '') + ' title="Incluir"></td>' +
+          '<td><input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
+          '<td><select data-p="account_id">' + accOpts(d.account_id, '—') + '</select></td>' +
+          '<td><select data-p="vp">' + vpOpts(d.vp, '—') + '</select></td>' +
+          '<td><select data-p="kind">' + opts(ML.KINDS, d.kind) + '</select></td>' +
+          '<td><select data-p="owner">' + peopleOpts(d.owner, '—') + '</select></td>' +
+          '<td><input type="date" data-p="due" value="' + esc(d.due) + '"></td>' +
+          '<td><select data-p="priority">' + opts(ML.PRIOS, d.priority) + '</select></td>' +
+          '<td><input data-p="note" value="' + esc(d.note) + '" placeholder="Comentarios…"></td>' +
+          '<td><button class="btn sm danger rd" data-p="remove" title="Quitar de la importación">🗑</button></td></tr>';
+      }).join('');
+      m.innerHTML = '<div class="box wide"><h2>Vista previa de la importación</h2>' +
+        '<p class="muted" style="margin-top:0">Edita lo que quieras, desmarca o quita lo que no te sirva. No se guarda nada hasta pulsar «Importar». ' + (dups ? '<b>' + dups + ' parecen duplicadas</b> y vienen desmarcadas.' : '') + '</p>' +
+        '<div class="filters"><button class="btn sm" id="pv-all">Marcar todas</button><button class="btn sm" id="pv-none">Desmarcar todas</button><span class="muted">' + inc + ' de ' + drafts.length + ' seleccionadas</span></div>' +
+        '<div class="tablewrap" style="max-height:55vh;overflow:auto"><table class="pv"><colgroup><col style="width:3%"><col style="width:25%"><col style="width:11%"><col style="width:10%"><col style="width:8%"><col style="width:11%"><col style="width:12%"><col style="width:6%"><col style="width:12%"><col style="width:2%"></colgroup><thead><tr><th></th><th>Tarea</th><th>Cuenta</th><th>VP</th><th>Tipo</th><th>Responsable</th><th>Fecha límite</th><th>Prior.</th><th>Comentarios</th><th></th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="10" class="empty">No queda ninguna tarea.</td></tr>') + '</tbody></table></div>' +
+        '<p style="text-align:right;margin-bottom:0"><button class="btn" id="pv-x">Cancelar</button> <button class="btn primary" id="pv-go"' + (inc ? '' : ' disabled') + '>Importar ' + inc + ' tarea' + (inc === 1 ? '' : 's') + '</button></p></div>';
+      $('pv-x').onclick = closeModal;
+      $('pv-all').onclick = function(){ drafts.forEach(function(d){ d.include = true; }); paint(); };
+      $('pv-none').onclick = function(){ drafts.forEach(function(d){ d.include = false; }); paint(); };
+      $('pv-go').onclick = async function(){
+        $('pv-go').disabled = true; $('pv-go').textContent = 'Importando…';
+        var n = await ML.commitImport(drafts); closeModal();
+        ML.toast(n + ' tarea' + (n === 1 ? '' : 's') + ' importada' + (n === 1 ? '' : 's'), n === 0); ML.rerender();
+      };
+      var tb = m.querySelector('tbody');
+      tb.addEventListener('change', function(e){
+        var el = e.target, tr = el.closest('tr[data-i]'), f = el.dataset.p; if(!tr || !f || f === 'remove') return;
+        var d = drafts[+tr.dataset.i];
+        if(f === 'include'){ d.include = el.checked; paint(); return; }
+        d[f] = el.value;
+        if(f === 'account_id' && el.value && !d.owner){ var a = ML.account(el.value); if(a && a.am) d.owner = a.am; paint(); }
+      });
+      tb.addEventListener('click', function(e){
+        var b = e.target.closest('[data-p=remove]'); if(!b) return;
+        drafts.splice(+b.closest('tr').dataset.i, 1); paint();
+      });
+    }
+    paint();
   }
 
   // ======================= CONFIGURACIÓN =======================

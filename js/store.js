@@ -299,45 +299,61 @@
   var OLD_VP = { 'Insurance Core Evolution': 'core', 'Insurance AI': 'ai', 'Insurance Everywhere': 'everywhere', 'Insurance RegTech': 'regtech' };
   var OK_KIND = ['reunion', 'presentar_vp', 'propuesta', 'otro'], OK_VP = ['core', 'ai', 'everywhere', 'regtech'], OK_PRIO = ['alta', 'media', 'baja'];
   // Acepta dos formatos: el del agente de Copilot {title, account, vp, kind, owner, due, priority, note}
-  // y el del histórico antiguo {text, end, status, priority, pilar, scope, am}. Devuelve {n, skipped}.
-  ML.importOld = async function(arr){
-    var n = 0, skipped = 0, byName = {}, people = {}, titles = {};
+  // y el del histórico antiguo {text, end, status, priority, pilar, scope, am}.
+  // Paso 1: convierte el JSON en borradores editables (no escribe nada). Cada borrador lleva avisos y si se incluye por defecto.
+  ML.prepareImport = function(arr){
+    var byName = {}, people = {}, titles = {}, drafts = [], seen = {};
     ML.s.accounts.forEach(function(a){ byName[a.name.toLowerCase()] = a; });
     ML.s.people.forEach(function(p){ people[p.name] = true; });
     ML.s.tasks.forEach(function(t){ titles[String(t.title).trim().toLowerCase()] = true; });
-    for(var i = 0; i < arr.length; i++){
-      var o = arr[i]; if(!o) continue;
-      var f;
+    arr.forEach(function(o){
+      if(!o) return;
+      var d;
       if(o.title){
-        var acc = o.account ? byName[String(o.account).toLowerCase()] : null, note = o.note || '';
+        var acc = o.account ? byName[String(o.account).toLowerCase()] : null, note = o.note || '', warns = [];
         var owner = o.owner || '';
-        if(owner && !people[owner]){ note = (note ? note + ' · ' : '') + 'Responsable propuesto: ' + owner; owner = ''; }
-        if(o.account && !acc) note = (note ? note + ' · ' : '') + 'Cuenta no reconocida: ' + o.account;
-        var vp = OK_VP.indexOf(o.vp) >= 0 ? o.vp : null;
-        f = { title: String(o.title).trim(), account_id: acc ? acc.id : null, vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes',
-              kind: OK_KIND.indexOf(o.kind) >= 0 ? o.kind : 'otro', owner: owner, due: /^\d{4}-\d{2}-\d{2}$/.test(o.due || '') ? o.due : null,
-              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note, source: 'agente', status: 'pendiente' };
+        if(owner && !people[owner]){ note = (note ? note + ' · ' : '') + 'Responsable propuesto: ' + owner; owner = ''; warns.push('Responsable «' + o.owner + '» no está en tu lista'); }
+        if(o.account && !acc){ note = (note ? note + ' · ' : '') + 'Cuenta no reconocida: ' + o.account; warns.push('Cuenta «' + o.account + '» no reconocida'); }
+        var vp = OK_VP.indexOf(o.vp) >= 0 ? o.vp : '';
+        if(o.vp && !vp) warns.push('VP «' + o.vp + '» no válida');
+        d = { title: String(o.title).trim(), account_id: acc ? acc.id : '', vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes', scope_text: '',
+              kind: OK_KIND.indexOf(o.kind) >= 0 ? o.kind : 'otro', owner: owner, due: /^\d{4}-\d{2}-\d{2}$/.test(o.due || '') ? o.due : '',
+              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note, source: 'agente', status: 'pendiente', warns: warns };
       } else if(o.text){
-        var pilar = o.pilar || 'vp', acc2 = null, vp2 = null, scope = '';
+        var pilar = o.pilar || 'vp', acc2 = null, vp2 = '', scope = '', w2 = [];
         if(pilar === 'clientes' && o.scope){ acc2 = byName[String(o.scope).toLowerCase()] || null; if(!acc2) scope = o.scope; }
-        else if(pilar === 'vp' && o.scope){ vp2 = OLD_VP[o.scope] || null; if(!vp2) scope = o.scope; }
+        else if(pilar === 'vp' && o.scope){ vp2 = OLD_VP[o.scope] || ''; if(!vp2) scope = o.scope; }
         else if(o.scope){ scope = o.scope; }
         var owner2 = o.am || o.owner || '', note2 = '';
-        if(owner2 && !people[owner2]){ note2 = 'Responsable original: ' + owner2; owner2 = ''; }
+        if(owner2 && !people[owner2]){ note2 = 'Responsable original: ' + owner2; owner2 = ''; w2.push('Responsable «' + (o.am || o.owner) + '» no está en tu lista'); }
         var due = o.end || '';
         if(o.recurring && Array.isArray(o.recurDates)){
-          var t = ML.today(); var next = o.recurDates.slice().sort().filter(function(d){ return d >= t; })[0];
+          var t = ML.today(); var next = o.recurDates.slice().sort().filter(function(x){ return x >= t; })[0];
           due = next || o.recurDates.slice().sort().pop() || due; note2 = (note2 ? note2 + ' · ' : '') + 'Recurrente (semanal), repetir a mano';
         }
-        f = { title: o.text, account_id: acc2 ? acc2.id : null, vp: vp2, pilar: pilar, scope_text: scope, kind: 'otro', owner: owner2, due: due || null,
-              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note2, source: 'importado', status: OLD_STATUS[o.status] || 'pendiente' };
-      } else continue;
-      if(!f.title) continue;
-      if(titles[f.title.toLowerCase()]){ skipped++; continue; }
-      var st = f.status; delete f.status;
-      var added = await ML.addTask(f);
-      if(added){ titles[f.title.toLowerCase()] = true; if(st !== 'pendiente') await ML.updateTask(added.id, { status: st }); n++; }
+        d = { title: String(o.text).trim(), account_id: acc2 ? acc2.id : '', vp: vp2, pilar: pilar, scope_text: scope, kind: 'otro', owner: owner2, due: due || '',
+              priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note2, source: 'importado', status: OLD_STATUS[o.status] || 'pendiente', warns: w2 };
+      } else return;
+      if(!d.title) return;
+      var key = d.title.toLowerCase();
+      d.dup = !!titles[key] || !!seen[key];
+      if(d.dup) d.warns.unshift(titles[key] ? 'Ya existe una tarea con este título' : 'Título repetido en el archivo');
+      seen[key] = true;
+      d.include = !d.dup;
+      drafts.push(d);
+    });
+    return drafts;
+  };
+  // Paso 2: guarda los borradores marcados (con los cambios que hayas hecho en la vista previa)
+  ML.commitImport = async function(drafts){
+    var n = 0;
+    for(var i = 0; i < drafts.length; i++){
+      var d = drafts[i]; if(!d.include || !String(d.title).trim()) continue;
+      var pilar = d.account_id ? 'clientes' : d.vp ? 'vp' : (d.pilar || 'clientes');
+      var added = await ML.addTask({ title: String(d.title).trim(), account_id: d.account_id || null, vp: d.vp || null, pilar: pilar, scope_text: d.scope_text || '',
+        kind: d.kind, owner: d.owner || '', due: d.due || null, priority: d.priority, note: d.note || '', source: d.source });
+      if(added){ if(d.status && d.status !== 'pendiente') await ML.updateTask(added.id, { status: d.status }); n++; }
     }
-    return { n: n, skipped: skipped };
+    return n;
   };
 })();
