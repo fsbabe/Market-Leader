@@ -3,6 +3,17 @@
   'use strict';
   var ML = window.ML, $ = function(id){ return document.getElementById(id); };
   window.__mlBooted = true; $('boot').hidden = true;
+  // Modo claro / oscuro (se recuerda en el navegador; por defecto sigue al sistema)
+  var root = document.documentElement, mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function theme(){ return root.getAttribute('data-theme') || (mq && mq.matches ? 'dark' : 'light'); }
+  function paintTheme(){ var b = $('btn-theme'); if(b) b.textContent = theme() === 'dark' ? '☀️' : '🌙'; }
+  $('btn-theme').onclick = function(){
+    var t = theme() === 'dark' ? 'light' : 'dark'; root.setAttribute('data-theme', t);
+    try{ localStorage.setItem('ml_theme', t); }catch(e){}
+    paintTheme();
+  };
+  if(mq && mq.addEventListener) mq.addEventListener('change', paintTheme);
+  paintTheme();
   var cfg = window.ML_CONFIG || {};
   if(!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY || /TU-PROYECTO|TU-CLAVE/.test(cfg.SUPABASE_URL + cfg.SUPABASE_ANON_KEY)){ $('config-error').hidden = false; return; }
   if(!window.supabase){ $('login').hidden = false; $('login-msg').textContent = 'No se pudo cargar la librería de Supabase (red o bloqueo del CDN).'; return; }

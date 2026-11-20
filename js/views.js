@@ -16,6 +16,28 @@
   function peopleOpts(sel, blank){ return opts(ML.s.people.filter(function(p){ return p.active || p.name === sel; }).map(function(p){ return [p.name, p.name]; }), sel, blank); }
   function vpOpts(sel, blank){ return opts(ML.VPS.map(function(v){ return [v.k, v.label]; }), sel, blank); }
   function stStyle(k, extra){ var c = ML.stageColor(k); return c ? ' style="background:' + c + (extra || '') + '"' : (extra ? ' style="' + extra.replace(/^;/, '') + '"' : ''); }
+  // ---- Columnas redimensionables (anchos en %, recordados en el navegador) ----
+  var TASK_COLS = [3, 27, 12, 10, 8, 10, 11, 9, 7, 3];
+  function accCols(){ var n = ML.VPS.length, rest = 62, each = Math.floor(rest / n * 100) / 100, a = [14, 12]; for(var i = 0; i < n; i++) a.push(each); a.push(8, 4); var s = a.reduce(function(x, y){ return x + y; }, 0); a[2] = Math.round((a[2] + 100 - s) * 100) / 100; return a; }
+  function loadW(key, def){ try{ var a = JSON.parse(localStorage.getItem('ml_cols_' + key)); if(Array.isArray(a) && a.length === def.length && Math.abs(a.reduce(function(x, y){ return x + y; }, 0) - 100) < 1) return a; }catch(e){} return def; }
+  function colgroup(key, def){ return '<colgroup>' + loadW(key, def).map(function(w){ return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; }
+  function makeResizable(table){
+    var key = table.dataset.cols, cols = table.querySelectorAll('colgroup col'), ths = table.querySelectorAll('thead th');
+    ths.forEach(function(th, i){
+      if(i >= ths.length - 1) return;
+      var h = document.createElement('span'); h.className = 'rz'; h.title = 'Arrastra para cambiar el ancho · doble clic: restablecer'; th.appendChild(h);
+      h.addEventListener('click', function(e){ e.stopPropagation(); });
+      h.addEventListener('dblclick', function(e){ e.stopPropagation(); try{ localStorage.removeItem('ml_cols_' + key); }catch(x){} ML.rerender(); });
+      h.addEventListener('pointerdown', function(e){
+        e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId); h.classList.add('on');
+        var tw = table.getBoundingClientRect().width, x0 = e.clientX, a0 = parseFloat(cols[i].style.width), b0 = parseFloat(cols[i + 1].style.width), MIN = 4;
+        function mv(ev){ var d = (ev.clientX - x0) / tw * 100, a = a0 + d, b = b0 - d; if(a < MIN){ b -= MIN - a; a = MIN; } if(b < MIN){ a -= MIN - b; b = MIN; } cols[i].style.width = a + '%'; cols[i + 1].style.width = b + '%'; }
+        function up(){ h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.classList.remove('on');
+          try{ localStorage.setItem('ml_cols_' + key, JSON.stringify(Array.prototype.map.call(cols, function(c){ return Math.round(parseFloat(c.style.width) * 100) / 100; }))); }catch(x){} }
+        h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+      });
+    });
+  }
   function accName(id){ var a = ML.account(id); return a ? a.name : ''; }
   // Desplegable de selección múltiple (casillas). Vacío = todos.
   function ms(key, all, items){
@@ -161,16 +183,15 @@
     var pil = (!t.account_id && !t.vp) ? '<span class="pill" title="Pilar">' + esc(ML.lab(ML.PILARES, t.pilar)) + '</span> ' : '';
     var r = '<tr class="u-' + u + '" data-id="' + t.id + '">' +
       '<td class="act editable"><input type="checkbox" data-f="done"' + (t.status === 'hecha' ? ' checked' : '') + ' title="Marcar hecha"></td>' +
-      '<td class="editable">' + pil + '<input class="title" data-f="title" value="' + esc(t.title) + '"></td>' +
+      '<td class="editable">' + (pil ? '<div>' + pil + '</div>' : '') + '<input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
       '<td class="editable"><select data-f="account_id">' + accOpts(t.account_id, '—') + '</select></td>' +
       '<td class="editable"><select data-f="vp">' + vpOpts(t.vp, '—') + '</select></td>' +
       '<td class="editable"><select data-f="kind">' + opts(ML.KINDS, t.kind) + '</select></td>' +
       '<td class="editable"><select data-f="owner">' + peopleOpts(t.owner, '—') + '</select></td>' +
-      '<td class="editable"><input type="date" data-f="due" value="' + esc(t.due || '') + '"> <span class="pill ' + u + '">' + esc(ML.dueText(t)) + '</span></td>' +
+      '<td class="editable dt"><input type="date" data-f="due" value="' + esc(t.due || '') + '">' + (ML.dueText(t) ? '<br><span class="pill ' + u + '">' + esc(ML.dueText(t)) + '</span>' : '') + '</td>' +
       '<td class="editable"><select data-f="status">' + opts(ML.STATUS, t.status) + '</select></td>' +
       '<td class="editable"><select data-f="priority">' + opts(ML.PRIOS, t.priority) + '</select></td>' +
-      '<td class="editable"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
-      '<td class="act editable"><button class="btn sm danger" data-a="del" title="Eliminar tarea">🗑 Eliminar</button></td></tr>';
+      '<td class="act editable"><button class="btn sm danger rd" data-a="del" title="Eliminar tarea" aria-label="Eliminar tarea">🗑</button></td></tr>';
     return r;
   }
   function tasksView(){
@@ -198,11 +219,11 @@
       '<span style="flex:1"></span><button class="btn sm editable" id="imp">⬆ Importar tareas (JSON)</button><input type="file" id="impf" accept="application/json" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
     list.forEach(function(t){
-      if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="12">' + esc(g) + '</td></tr>'; last = g; } }
+      if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
       body += row(t);
     });
-    if(!list.length) body = '<tr><td colspan="12" class="empty">No hay tareas con este filtro.</td></tr>';
-    return add + fl + '<div class="tablewrap"><table><thead><tr><th></th>' + th('title', 'Tarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th>Comentarios</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
+    if(!list.length) body = '<tr><td colspan="10" class="empty">No hay tareas con este filtro.</td></tr>';
+    return add + fl + '<div class="tablewrap"><table class="fx" data-cols="tasks">' + colgroup('tasks', TASK_COLS) + '<thead><tr><th></th>' + th('title', 'Tarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   function csvCell(v){ v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
@@ -277,7 +298,7 @@
   // ======================= CUENTAS =======================
   function accountsView(){
     var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '', vp: '', stage: '' }), q = f.q.trim().toLowerCase();
-    var list = ML.s.accounts.filter(function(a){ if(!a.active) return false; if(f.am && a.am !== f.am) return false;
+    var list = ML.s.accounts.filter(function(a){ if(!a.active && !f.showInactive) return false; if(f.am && a.am !== f.am) return false;
       if(q && a.name.toLowerCase().indexOf(q) < 0) return false;
       if(f.vp || f.stage){
         return ML.s.stages.some(function(s){ return s.account_id === a.id && (!f.vp || s.vp === f.vp) && (f.stage ? s.stage === f.stage : s.stage !== 'no_aplica'); });
@@ -285,7 +306,7 @@
       return true; });
     var opn = {}; openTasks().forEach(function(t){ if(t.account_id) opn[t.account_id] = (opn[t.account_id] || 0) + 1; });
     var head = '<div class="filters"><select id="af-am">' + peopleOpts(f.am, 'Todos los AM') + '</select><input id="af-q" placeholder="Buscar cuenta…" value="' + esc(f.q) + '">' +
-      '<select id="af-vp">' + vpOpts(f.vp, 'Todas las VP') + '</select><select id="af-st">' + opts(ML.STAGES, f.stage, 'Todas las etapas') + '</select><button class="btn sm" id="af-clr">Limpiar</button>' +
+      '<select id="af-vp">' + vpOpts(f.vp, 'Todas las VP') + '</select><select id="af-st">' + opts(ML.STAGES, f.stage, 'Todas las etapas') + '</select><label class="muted"><input type="checkbox" id="af-inact"' + (f.showInactive ? ' checked' : '') + '> Ver inactivas</label><button class="btn sm" id="af-clr">Limpiar</button>' +
       '<span class="muted">' + list.length + ' cuentas</span><span style="flex:1"></span>' +
       '<button class="btn sm editable" id="add-acc">+ Cuenta</button><button class="btn sm editable" id="add-per">+ Responsable</button></div>';
     var th = '<thead><tr><th>Cuenta</th><th>AM</th>' + ML.VPS.map(function(v){ return '<th>' + esc(v.label) + '</th>'; }).join('') + '<th>Tareas abiertas</th><th></th></tr></thead>';
@@ -294,24 +315,25 @@
         var s = ML.stageOf(a.id, v.k), st = s ? s.stage : 'no_aplica';
         return '<td class="editable"><select class="stsel st-' + st + '"' + stStyle(st, ';color:#fff') + ' data-vp="' + v.k + '">' + opts(ML.STAGES, st) + '</select></td>';
       }).join('');
-      var r = '<tr data-acc="' + esc(a.id) + '"><td><b>' + esc(a.name) + '</b></td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + tds +
+      var r = '<tr data-acc="' + esc(a.id) + '"' + (a.active ? '' : ' style="opacity:.55"') + '><td><b>' + esc(a.name) + '</b>' + (a.active ? '' : ' <span class="muted">(inactiva)</span>') + '</td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + tds +
         '<td>' + (opn[a.id] ? '<a href="#" data-go="' + esc(a.id) + '">' + opn[a.id] + '</a>' : '<span class="muted">0</span>') + '</td>' +
         '<td class="act"><button class="btn sm" data-detail>' + (ui.openAcc === a.id ? '▲' : '▼') + '</button></td></tr>';
       if(ui.openAcc === a.id){
         r += '<tr><td colspan="' + (ML.VPS.length + 4) + '" class="note editable"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
           ML.VPS.map(function(v){ var s = ML.stageOf(a.id, v.k) || {}; return '<div><b>' + esc(v.label) + '</b><br><textarea data-note="' + v.k + '" placeholder="Notas (caso de uso, motivo de aparcado…)">' + esc(s.note) + '</textarea><br><label class="muted">Revisar el <input type="date" data-rev="' + v.k + '" value="' + esc(s.review_date || '') + '"></label></div>'; }).join('') +
-          '<div><b>Nota de la cuenta</b><br><textarea data-accnote>' + esc(a.note) + '</textarea><br><button class="btn sm danger" data-delacc>Borrar cuenta</button></div></div></td></tr>';
+          '<div><b>Cuenta</b><br><input data-accname value="' + esc(a.name) + '" style="width:100%;margin:3px 0"><br><label><input type="checkbox" data-accactive' + (a.active ? ' checked' : '') + '> Activa (visible en listas y desplegables)</label><br><textarea data-accnote placeholder="Nota de la cuenta">' + esc(a.note) + '</textarea><br><button class="btn sm danger" data-delacc>Borrar cuenta</button></div></div></td></tr>';
       }
       return r;
     }).join('') || '<tr><td colspan="' + (ML.VPS.length + 4) + '" class="empty">Sin cuentas</td></tr>';
-    return head + '<div class="tablewrap"><table>' + th + '<tbody>' + body + '</tbody></table></div>';
+    var cd = accCols(); return head + '<div class="tablewrap"><table class="fx" data-cols="acc' + cd.length + '">' + colgroup('acc' + cd.length, cd) + th + '<tbody>' + body + '</tbody></table></div>';
   }
   function bindAccounts(v){
     var ui = ML.ui;
     v.querySelector('#af-am').onchange = function(e){ ui.accF.am = e.target.value; ML.rerender(); };
     v.querySelector('#af-vp').onchange = function(e){ ui.accF.vp = e.target.value; ML.rerender(); };
     v.querySelector('#af-st').onchange = function(e){ ui.accF.stage = e.target.value; ML.rerender(); };
-    v.querySelector('#af-clr').onclick = function(){ ui.accF = { am: '', q: '', vp: '', stage: '' }; ML.rerender(); };
+    v.querySelector('#af-clr').onclick = function(){ ui.accF = { am: '', q: '', vp: '', stage: '', showInactive: false }; ML.rerender(); };
+    v.querySelector('#af-inact').onchange = function(e){ ui.accF.showInactive = e.target.checked; ML.rerender(); };
     v.querySelector('#af-q').oninput = function(e){ ui.accF.q = e.target.value; var p = e.target.selectionStart; ML.rerender(); var n = document.getElementById('af-q'); n.focus(); try{ n.setSelectionRange(p, p); }catch(x){} };
     v.querySelector('#add-acc').onclick = async function(){ var n = prompt('Nombre de la cuenta:'); if(n && n.trim()){ var a = await ML.addAccount(n.trim(), ''); if(a){ ui.openAcc = a.id; ML.rerender(); } } };
     v.querySelector('#add-per').onclick = async function(){ var n = prompt('Nombre del responsable (AM):'); if(n && n.trim()){ await ML.addPerson(n.trim()); ML.rerender(); } };
@@ -326,6 +348,8 @@
       else if(el.dataset.note){ await ML.setStage(id, el.dataset.note, { note: el.value }); ML.toast('Guardado'); }
       else if(el.dataset.rev){ await ML.setStage(id, el.dataset.rev, { review_date: el.value || null }); ML.toast('Guardado'); }
       else if('accnote' in el.dataset){ await ML.updateAccount(id, { note: el.value }); ML.toast('Guardado'); }
+      else if('accname' in el.dataset){ if(el.value.trim()){ await ML.updateAccount(id, { name: el.value.trim() }); ML.toast('Guardado'); } ML.rerender(); }
+      else if('accactive' in el.dataset){ await ML.updateAccount(id, { active: el.checked }); ML.rerender(); }
     });
     tb.addEventListener('click', async function(e){
       var b = e.target.closest('[data-detail],[data-delacc]'); if(!b) return;
@@ -363,17 +387,8 @@
     var peoplePanel = '<div class="panel"><h2>Responsables (AM)</h2><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th><th>Uso</th><th>Activo</th><th></th></tr></thead><tbody>' + people + '</tbody></table></div>' +
       '<form class="filters editable" id="addPerson" style="margin:8px 0 0"><input placeholder="Nuevo responsable…" required><button class="btn sm primary" type="submit">Añadir</button></form>' +
       '<p class="muted" style="font-size:12px">Renombrar actualiza también las cuentas y tareas. Borrar deja esas cuentas y tareas sin responsable.</p></div>';
-    var accs = ML.s.accounts.map(function(a){
-      var n = ML.s.tasks.filter(function(t){ return t.account_id === a.id; }).length;
-      return '<tr data-acc="' + esc(a.id) + '"><td class="editable"><input data-af="name" value="' + esc(a.name) + '" style="width:100%"></td>' +
-        '<td class="editable"><select data-af="am">' + peopleOpts(a.am, '—') + '</select></td><td class="muted">' + n + ' tareas</td>' +
-        '<td class="editable"><input type="checkbox" data-af="active"' + (a.active ? ' checked' : '') + ' title="Activa (visible en Cuentas y listas)"></td>' +
-        '<td class="act editable"><button class="btn sm danger" data-aa="del">🗑</button></td></tr>';
-    }).join('');
-    var accPanel = '<div class="panel"><h2>Cuentas</h2><div class="tablewrap" style="max-height:420px;overflow:auto"><table style="min-width:0"><thead><tr><th>Nombre</th><th>AM</th><th>Uso</th><th>Activa</th><th></th></tr></thead><tbody>' + accs + '</tbody></table></div>' +
-      '<form class="filters editable" id="addAcc" style="margin:8px 0 0"><input placeholder="Nueva cuenta…" required><select>' + peopleOpts('', 'AM') + '</select><button class="btn sm primary" type="submit">Añadir</button></form></div>';
     var lists = ['vp', 'stage', 'status', 'kind', 'pilar', 'priority'].map(cfgList).join('');
-    return warn + '<p class="muted" style="margin-top:0">Renombrar un valor cambia cómo se ve en toda la app; los datos existentes siguen enlazados por su clave interna. 🔒 = valor que la lógica necesita (se renombra, no se borra). «Activo» desmarcado lo oculta de los desplegables sin tocar los datos antiguos.</p><div class="grid cols">' + peoplePanel + accPanel + lists + '</div>';
+    return warn + '<p class="muted" style="margin-top:0;max-width:820px">Renombrar un valor cambia cómo se ve en toda la app; los datos existentes siguen enlazados por su clave interna. 🔒 = valor que la lógica necesita (se renombra, no se borra). «Activo» desmarcado lo oculta de los desplegables sin tocar los datos antiguos. Las cuentas se editan en la pestaña Cuentas.</p><div class="cfgstack">' + peoplePanel + lists + '</div>';
   }
   function bindConfig(v){
     if(v.__cfg) return; v.__cfg = true;   // #view es el mismo elemento en cada render: enlazar una sola vez
@@ -443,9 +458,9 @@
         ui.accF = { am: '', q: '', vp: r.dataset.vp, stage: sg ? sg.dataset.st : '' };
         ML.setTab('accounts');
       }; });
-    } else if(ui.tab === 'tasks'){ v.innerHTML = tasksView(); bindTasks(v); }
+    } else if(ui.tab === 'tasks'){ v.innerHTML = tasksView(); bindTasks(v); makeResizable(v.querySelector('table.fx')); }
     else if(ui.tab === 'config'){ v.innerHTML = configView(); bindConfig(v); }
-    else { v.innerHTML = accountsView(); bindAccounts(v); }
+    else { v.innerHTML = accountsView(); bindAccounts(v); makeResizable(v.querySelector('table.fx')); }
   };
   ML.rerender = ML.render;
   document.addEventListener('click', function(e){
