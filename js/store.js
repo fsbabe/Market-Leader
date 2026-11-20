@@ -21,6 +21,27 @@
   var NOT_ADVANCE = ['no_aplica', 'aparcada', 'perdida'];
 
   ML.s = { people: [], accounts: [], stages: [], tasks: [], lists: [] };
+
+  // Orden de los desplegables: alfabético o manual (se recuerda en este navegador). Por defecto alfabético salvo
+  // etapas, estados y prioridades, donde el orden tiene significado (flujo / gravedad).
+  var ALPHA_DEFAULT = { vp: 1, pilar: 1, kind: 1, people: 1 };
+  ML.sortMode = function(kind){ try{ var v = localStorage.getItem('ml_sort_' + kind); if(v === 'alpha' || v === 'manual') return v; }catch(e){} return ALPHA_DEFAULT[kind] ? 'alpha' : 'manual'; };
+  ML.setSortMode = function(kind, mode){ try{ localStorage.setItem('ml_sort_' + kind, mode); }catch(e){} if(kind === 'people') ML.resort(); else ML.applyLists(ML.s.lists); };
+  var byText = function(f){ return function(a, b){ return String(f(a)).localeCompare(String(f(b)), 'es', { sensitivity: 'base' }); }; };
+  ML.resort = function(){
+    ML.s.accounts.sort(byText(function(a){ return a.name; }));
+    if(ML.sortMode('people') === 'alpha') ML.s.people.sort(byText(function(p){ return p.name; }));
+    else ML.s.people.sort(function(a, b){ return (a.sort - b.sort) || (a.name < b.name ? -1 : 1); });
+  };
+
+  // Colores de los pilares (editables en Configuración; estos son los valores por defecto)
+  ML.PILAR_COLORS = { vp: '#F5F340', partnership: '#92A0CC', marketing: '#DA1984', clientes: '#232D4B' };
+  ML.pilarColor = function(k){ var r = (ML.rows.pilar || []).filter(function(x){ return x.key === k; })[0]; return (r && r.color) || ML.PILAR_COLORS[k] || '#9aa3b5'; };
+  ML.textOn = function(hex){
+    var h = String(hex || '').replace('#', ''); if(h.length === 3) h = h.replace(/./g, '$&$&');
+    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1d2433' : '#ffffff';
+  };
   ML.listsOk = false;
 
   ML.applyLists = function(rows){
@@ -33,6 +54,8 @@
       }
       src[k].sort(function(a, b){ return (a.sort - b.sort) || (a.key < b.key ? -1 : 1); });
     });
+    ML.stageOrder = src.stage.map(function(r){ return r.key; });   // orden lógico del embudo (siempre el manual)
+    Object.keys(src).forEach(function(k){ if(ML.sortMode(k) === 'alpha') src[k].sort(byText(function(r){ return r.label; })); });
     ML.rows = src;
     var act = function(k){ return src[k].filter(function(r){ return r.active || ML.SYSTEM[k].indexOf(r.key) >= 0; }); };
     var pairs = function(k){ var a = act(k).map(function(r){ return [r.key, r.label]; }); a._kind = k; return a; };
@@ -53,7 +76,7 @@
   };
   ML.vpLabel = function(k){ var r = ML.rows.vp.filter(function(x){ return x.key === k; })[0]; return r ? r.label : (k || ''); };
   ML.bestStage = function(accountId){
-    var best = -1, ord = ML.STAGES.map(function(x){ return x[0]; });
+    var best = -1, ord = ML.stageOrder;
     ML.s.stages.forEach(function(s){ if(s.account_id === accountId && NOT_ADVANCE.indexOf(s.stage) < 0){ var i = ord.indexOf(s.stage); if(i > best) best = i; } });
     return best < 0 ? '' : ord[best];
   };
@@ -110,7 +133,7 @@
     var q = function(t, o){ var r = ML.sb.from(t).select('*'); return o ? r.order(o) : r; };
     var res = await Promise.all([q('ml_people', 'sort'), q('ml_accounts', 'name'), q('ml_stages'), q('ml_tasks', 'id'), q('ml_lists', 'sort')]);
     for(var i = 0; i < 4; i++){ if(res[i].error){ ML.toast('Error al leer datos: ' + res[i].error.message, true); return false; } }
-    ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data;
+    ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data; ML.resort();
     ML.listsOk = !res[4].error && !!res[4].data && res[4].data.length > 0;
     ML.s.lists = ML.listsOk ? res[4].data : [];
     ML.applyLists(ML.s.lists);
@@ -169,7 +192,7 @@
   };
   ML.updateAccount = async function(id, patch){
     var a = ML.account(id); if(!a) return false;
-    Object.keys(patch).forEach(function(k){ a[k] = patch[k]; });
+    Object.keys(patch).forEach(function(k){ a[k] = patch[k]; }); ML.resort();
     var r = await ML.sb.from('ml_accounts').update(patch).eq('id', id);
     if(r.error){ await fail(r.error); return false; }
     return true;
@@ -186,7 +209,7 @@
     var sort = ML.s.people.length ? Math.max.apply(null, ML.s.people.map(function(p){ return p.sort || 0; })) + 1 : 1;
     var r = await ML.sb.from('ml_people').insert({ name: name, sort: sort }).select().single();
     if(r.error){ await fail(r.error); return null; }
-    ML.s.people.push(r.data); return r.data;
+    ML.s.people.push(r.data); ML.resort(); return r.data;
   };
 
   // ---------- Configuración: listas de valores, responsables y cuentas ----------
@@ -201,7 +224,7 @@
     var rows = ML.rows[kind], base = ML.slug(label).replace(/-/g, '_'), key = base, n = 2;
     while(rows.some(function(r){ return r.key === key; })) key = base + '_' + (n++);
     var sort = Math.max.apply(null, rows.map(function(r){ return r.sort; }).concat([0])) + 1;
-    var row = { kind: kind, key: key, label: label, sort: sort, active: true, color: kind === 'stage' ? PALETTE[rows.length % PALETTE.length] : '', system: false };
+    var row = { kind: kind, key: key, label: label, sort: sort, active: true, color: (kind === 'stage' || kind === 'pilar') ? PALETTE[rows.length % PALETTE.length] : '', system: false };
     if(!ML.listsOk){ ML.toast('Falta ejecutar migration_v3.sql en Supabase para poder editar las listas', true); return null; }
     var r = await ML.sb.from('ml_lists').insert(row).select().single();
     if(r.error){ await fail(r.error); return null; }
@@ -241,7 +264,7 @@
     if(ML.s.people.some(function(p){ return p.name === newName; })){ ML.toast('Ya existe un responsable con ese nombre', true); return false; }
     var r = await ML.sb.from('ml_people').update({ name: newName }).eq('name', oldName);
     if(r.error){ await fail(r.error); return false; }
-    ML.s.people.forEach(function(p){ if(p.name === oldName) p.name = newName; });
+    ML.s.people.forEach(function(p){ if(p.name === oldName) p.name = newName; }); ML.resort();
     ML.s.accounts.forEach(function(a){ if(a.am === oldName) a.am = newName; });
     ML.s.tasks.forEach(function(t){ if(t.owner === oldName) t.owner = newName; });
     return true;

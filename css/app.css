@@ -127,3 +127,11 @@ td.dt .pill{display:inline-block;margin-top:3px}
 .btn.danger.rd{border-color:var(--over);color:var(--over)}
 @media (max-width:900px){table.fx{table-layout:auto;min-width:900px}}
 @media (max-width:1150px){.add{grid-template-columns:repeat(4,1fr)}.add #a-title{grid-column:1/-1}}
+
+/* etiqueta de pilar editable + ID de tarea */
+.tagline{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.tid{font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums}
+td select.ptag{appearance:none;-webkit-appearance:none;width:auto;max-width:100%;border:0;border-radius:99px;padding:1px 10px;font-size:11.5px;font-weight:600;cursor:pointer;box-shadow:0 0 0 1px rgba(128,128,128,.45)}
+td select.ptag:hover{filter:brightness(1.08);box-shadow:0 0 0 2px var(--brand)}
+select.ptag option{background:var(--card);color:var(--ink)}
+table.fx td select.ptag{width:auto}

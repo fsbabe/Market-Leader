@@ -157,7 +157,7 @@
       if(f.vp.length && f.vp.indexOf(t.vp) < 0) return false;
       if(f.pilar.length && f.pilar.indexOf(t.pilar) < 0) return false;
       if(f.status.length && f.status.indexOf(t.status) < 0) return false;
-      if(q && (t.title + ' ' + accName(t.account_id) + ' ' + (t.owner || '') + ' ' + (t.note || '') + ' ' + (t.scope_text || '')).toLowerCase().indexOf(q) < 0) return false;
+      if(q && String(t.id) !== q.replace(/^#/, '') && (t.title + ' ' + accName(t.account_id) + ' ' + (t.owner || '') + ' ' + (t.note || '') + ' ' + (t.scope_text || '')).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     var key = ML.ui.sort, dir = ML.ui.dir;
@@ -180,10 +180,11 @@
   }
   function row(t){
     var u = ML.urgency(t), ro = '';
-    var pil = (!t.account_id && !t.vp) ? '<span class="pill" title="Pilar">' + esc(ML.lab(ML.PILARES, t.pilar)) + '</span> ' : '';
+    var pc = ML.pilarColor(t.pilar);
+    var pil = '<span class="tid" title="ID de la tarea">#' + t.id + '</span> <select class="ptag" data-f="pilar" title="Pilar (clic para cambiar)" style="background:' + pc + ';color:' + ML.textOn(pc) + '">' + opts(ML.PILARES, t.pilar) + '</select>';
     var r = '<tr class="u-' + u + '" data-id="' + t.id + '">' +
       '<td class="act editable"><input type="checkbox" data-f="done"' + (t.status === 'hecha' ? ' checked' : '') + ' title="Marcar hecha"></td>' +
-      '<td class="editable">' + (pil ? '<div>' + pil + '</div>' : '') + '<input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
+      '<td class="editable"><div class="tagline">' + pil + '</div><input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
       '<td class="editable"><select data-f="account_id">' + accOpts(t.account_id, '—') + '</select></td>' +
       '<td class="editable"><select data-f="vp">' + vpOpts(t.vp, '—') + '</select></td>' +
       '<td class="editable"><select data-f="kind">' + opts(ML.KINDS, t.kind) + '</select></td>' +
@@ -228,8 +229,8 @@
 
   function csvCell(v){ v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
   function exportCsv(){
-    var rows = [['Tarea', 'Cuenta', 'VP', 'Pilar', 'Tipo', 'Responsable', 'Fecha límite', 'Estado', 'Prioridad', 'Nota']];
-    visible().forEach(function(t){ rows.push([t.title, accName(t.account_id), ML.vpLabel(t.vp), ML.lab(ML.PILARES, t.pilar), ML.lab(ML.KINDS, t.kind), t.owner || '', t.due || '', ML.lab(ML.STATUS, t.status), t.priority, t.note]); });
+    var rows = [['ID', 'Tarea', 'Cuenta', 'VP', 'Pilar', 'Tipo', 'Responsable', 'Fecha límite', 'Estado', 'Prioridad', 'Nota']];
+    visible().forEach(function(t){ rows.push([t.id, t.title, accName(t.account_id), ML.vpLabel(t.vp), ML.lab(ML.PILARES, t.pilar), ML.lab(ML.KINDS, t.kind), t.owner || '', t.due || '', ML.lab(ML.STATUS, t.status), t.priority, t.note]); });
     var blob = new Blob(['﻿' + rows.map(function(r){ return r.map(csvCell).join(';'); }).join('\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tareas-' + ML.today() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
   }
@@ -361,19 +362,20 @@
   }
 
   // ======================= CONFIGURACIÓN =======================
+  function sortSel(kind){ var m = ML.sortMode(kind); return '<select data-sortmode="' + kind + '" title="Orden de la lista y de los desplegables"><option value="alpha"' + (m === 'alpha' ? ' selected' : '') + '>Orden: alfabético</option><option value="manual"' + (m === 'manual' ? ' selected' : '') + '>Orden: manual</option></select>'; }
   function cfgList(kind){
-    var rows = ML.rows[kind], sys = ML.SYSTEM[kind];
+    var rows = ML.rows[kind], sys = ML.SYSTEM[kind], hasColor = kind === 'stage' || kind === 'pilar', alpha = ML.sortMode(kind) === 'alpha';
     var body = rows.map(function(r, i){
       var isSys = sys.indexOf(r.key) >= 0, used = ML.listUsed(kind, r.key);
       return '<tr data-kind="' + kind + '" data-key="' + esc(r.key) + '">' +
         '<td class="editable"><input data-lf="label" value="' + esc(r.label) + '" style="width:100%"></td>' +
-        (kind === 'stage' ? '<td class="editable"><input type="color" data-lf="color" value="' + (r.color || '#888888') + '" title="Color">' + (r.color ? ' <button class="btn sm" data-la="uncolor" title="Color por defecto">↺</button>' : '') + '</td>' : '') +
+        (hasColor ? '<td class="editable"><input type="color" data-lf="color" value="' + (kind === 'pilar' ? ML.pilarColor(r.key) : (r.color || '#888888')) + '" title="Color">' + (r.color ? ' <button class="btn sm" data-la="uncolor" title="Color por defecto">↺</button>' : '') + '</td>' : '') +
         '<td class="muted" title="Clave interna (no cambia al renombrar)">' + esc(r.key) + (isSys ? ' 🔒' : '') + '</td><td class="muted">' + used + '</td>' +
         '<td class="editable"><input type="checkbox" data-lf="active" ' + (r.active || isSys ? 'checked' : '') + (isSys ? ' disabled' : '') + ' title="Activo"></td>' +
-        '<td class="act editable"><button class="btn sm" data-la="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-la="down"' + (i === rows.length - 1 ? ' disabled' : '') + '>↓</button> ' +
+        '<td class="act editable">' + (alpha ? '' : '<button class="btn sm" data-la="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-la="down"' + (i === rows.length - 1 ? ' disabled' : '') + '>↓</button> ') +
         '<button class="btn sm danger" data-la="del"' + (isSys ? ' disabled title="Valor del sistema"' : '') + '>🗑</button></td></tr>';
     }).join('');
-    return '<div class="panel"><h2>' + esc(ML.LIST_TITLES[kind]) + '</h2><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th>' + (kind === 'stage' ? '<th>Color</th>' : '') + '<th>Clave</th><th>En uso</th><th>Activo</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+    return '<div class="panel"><div class="filters" style="margin-bottom:6px"><h2 style="margin:0">' + esc(ML.LIST_TITLES[kind]) + '</h2>' + sortSel(kind) + '</div><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th>' + (hasColor ? '<th>Color</th>' : '') + '<th>Clave</th><th>En uso</th><th>Activo</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>' +
       '<form class="filters editable" data-addlist="' + kind + '" style="margin:8px 0 0"><input placeholder="Nuevo valor…" required><button class="btn sm primary" type="submit">Añadir</button></form></div>';
   }
   function configView(){
@@ -382,9 +384,9 @@
       return '<tr data-person="' + esc(p.name) + '"><td class="editable"><input data-pf="name" value="' + esc(p.name) + '" style="width:100%"></td>' +
         '<td class="muted">' + (ML.s.accounts.filter(function(a){ return a.am === p.name; }).length) + ' cuentas · ' + ML.s.tasks.filter(function(t){ return t.owner === p.name && ML.isOpen(t); }).length + ' tareas abiertas</td>' +
         '<td class="editable"><input type="checkbox" data-pf="active"' + (p.active ? ' checked' : '') + ' title="Activo"></td>' +
-        '<td class="act editable"><button class="btn sm" data-pa="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-pa="down"' + (i === ML.s.people.length - 1 ? ' disabled' : '') + '>↓</button> <button class="btn sm danger" data-pa="del">🗑</button></td></tr>';
+        '<td class="act editable">' + (ML.sortMode('people') === 'alpha' ? '' : '<button class="btn sm" data-pa="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-pa="down"' + (i === ML.s.people.length - 1 ? ' disabled' : '') + '>↓</button> ') + '<button class="btn sm danger" data-pa="del">🗑</button></td></tr>';
     }).join('');
-    var peoplePanel = '<div class="panel"><h2>Responsables (AM)</h2><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th><th>Uso</th><th>Activo</th><th></th></tr></thead><tbody>' + people + '</tbody></table></div>' +
+    var peoplePanel = '<div class="panel"><div class="filters" style="margin-bottom:6px"><h2 style="margin:0">Responsables (AM)</h2>' + sortSel('people') + '</div><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th><th>Uso</th><th>Activo</th><th></th></tr></thead><tbody>' + people + '</tbody></table></div>' +
       '<form class="filters editable" id="addPerson" style="margin:8px 0 0"><input placeholder="Nuevo responsable…" required><button class="btn sm primary" type="submit">Añadir</button></form>' +
       '<p class="muted" style="font-size:12px">Renombrar actualiza también las cuentas y tareas. Borrar deja esas cuentas y tareas sin responsable.</p></div>';
     var lists = ['vp', 'stage', 'status', 'kind', 'pilar', 'priority'].map(cfgList).join('');
@@ -401,7 +403,9 @@
     });
     v.addEventListener('change', async function(e){
       if(ML.ui.tab !== 'config') return;
-      var el = e.target, tr = el.closest('tr'); if(!tr) return;
+      var el = e.target;
+      if(el.dataset.sortmode){ ML.setSortMode(el.dataset.sortmode, el.value); ML.rerender(); return; }
+      var tr = el.closest('tr'); if(!tr) return;
       if(el.dataset.lf){
         var val = el.dataset.lf === 'active' ? el.checked : el.value.trim();
         if(el.dataset.lf === 'label' && !val){ ML.rerender(); return; }
