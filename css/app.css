@@ -57,7 +57,7 @@ h2{font-size:15px;margin:0 0 10px}
 .chips button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 @media (prefers-color-scheme:dark){.chips button.on{color:#10151d}}
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r)}
-table{border-collapse:collapse;width:100%;min-width:980px}
+table{border-collapse:collapse;width:100%;min-width:1300px}
 th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
 th{font-size:11.5px;color:var(--mute);font-weight:600;white-space:nowrap;position:sticky;top:0;background:var(--card)}
 th.s{cursor:pointer}
@@ -99,3 +99,10 @@ select option{background:var(--card);color:var(--ink)}
 .msp label:hover{background:var(--bg)}
 .add .btn.primary{order:2}
 .bar-row.link{cursor:pointer}.bar-row.link:hover .nm{text-decoration:underline}.bar-row.link .bar i:hover{filter:brightness(1.15)}
+
+.panel.wide{grid-column:1/-1}
+tr.link{cursor:pointer}tr.link:hover td{background:var(--bg)}
+td textarea.cm{width:100%;min-width:230px;height:34px;resize:vertical;padding:5px 8px}
+.msb:hover,.btn:hover{border-color:var(--brand)}
+input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--line);border-radius:4px;background:none;vertical-align:middle}
+td input[data-lf=label],td input[data-pf=name],td input[data-af=name]{min-width:160px}

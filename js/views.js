@@ -2,17 +2,20 @@
 (function(){
   'use strict';
   var ML = window.ML, esc = ML.esc;
-  ML.ui = { tab: 'dashboard', quick: 'abiertas', f: { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }, msOpen: null, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null };
+  ML.ui = { tab: 'dashboard', kpiDays: 90, quick: 'abiertas', f: { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }, msOpen: null, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null };
   var $ = function(id){ return document.getElementById(id); };
 
   function opts(list, sel, blank){
     var h = blank != null ? '<option value="">' + esc(blank) + '</option>' : '';
-    list.forEach(function(o){ var k = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o; h += '<option value="' + esc(k) + '"' + (k === sel ? ' selected' : '') + '>' + esc(l) + '</option>'; });
+    var found = false;
+    list.forEach(function(o){ var k = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o; if(k === sel) found = true; h += '<option value="' + esc(k) + '"' + (k === sel ? ' selected' : '') + '>' + esc(l) + '</option>'; });
+    if(sel && !found && list._kind) h += '<option value="' + esc(sel) + '" selected>' + esc(ML.lab(list, sel)) + ' (inactivo)</option>';
     return h;
   }
   function accOpts(sel, blank){ return opts(ML.s.accounts.filter(function(a){ return a.active || a.id === sel; }).map(function(a){ return [a.id, a.name]; }), sel, blank); }
   function peopleOpts(sel, blank){ return opts(ML.s.people.filter(function(p){ return p.active || p.name === sel; }).map(function(p){ return [p.name, p.name]; }), sel, blank); }
   function vpOpts(sel, blank){ return opts(ML.VPS.map(function(v){ return [v.k, v.label]; }), sel, blank); }
+  function stStyle(k, extra){ var c = ML.stageColor(k); return c ? ' style="background:' + c + (extra || '') + '"' : (extra ? ' style="' + extra.replace(/^;/, '') + '"' : ''); }
   function accName(id){ var a = ML.account(id); return a ? a.name : ''; }
   // Desplegable de selección múltiple (casillas). Vacío = todos.
   function ms(key, all, items){
@@ -62,10 +65,10 @@
       if(!st.length) return '';
       var c = {}; st.forEach(function(s){ c[s.stage] = (c[s.stage] || 0) + 1; });
       var tot = st.length;
-      var segs = ML.STAGES.filter(function(s){ return c[s[0]]; }).map(function(s){ return '<i class="st-' + s[0] + '" data-vp="' + v.k + '" data-st="' + s[0] + '" style="width:' + (c[s[0]] / tot * 100) + '%" title="' + esc(s[1]) + ': ' + c[s[0]] + '"></i>'; }).join('');
+      var segs = ML.STAGES.filter(function(s){ return c[s[0]]; }).map(function(s){ return '<i class="st-' + s[0] + '" data-vp="' + v.k + '" data-st="' + s[0] + '" style="' + (ML.stageColor(s[0]) ? 'background:' + ML.stageColor(s[0]) + ';' : '') + 'width:' + (c[s[0]] / tot * 100) + '%" title="' + esc(s[1]) + ': ' + c[s[0]] + '"></i>'; }).join('');
       return '<div class="bar-row link" data-vp="' + v.k + '"><span class="nm">' + esc(v.label) + '</span><div class="bar">' + segs + '</div><b>' + tot + '</b></div>';
     }).join('') || '<p class="empty">Sin cuentas</p>';
-    var fl = '<div class="legend">' + ML.STAGES.filter(function(s){ return s[0] !== 'no_aplica'; }).map(function(s){ return '<span><i class="st-' + s[0] + '"></i>' + esc(s[1]) + '</span>'; }).join('') + '</div>';
+    var fl = '<div class="legend">' + ML.STAGES.filter(function(s){ return s[0] !== 'no_aplica'; }).map(function(s){ return '<span><i class="st-' + s[0] + '"' + stStyle(s[0]) + '></i>' + esc(s[1]) + '</span>'; }).join('') + '</div>';
 
     // Cuentas activas (Core o AI) sin ninguna tarea abierta
     var withTask = {}; o.forEach(function(x){ if(x.account_id) withTask[x.account_id] = 1; });
@@ -86,7 +89,30 @@
       '<div class="panel"><h2>Vencen pronto</h2><div class="list">' + nextH + '</div></div>' +
       '<div class="panel"><h2>Carga por responsable (tareas abiertas)</h2>' + load + legend + '</div>' +
       '<div class="panel"><h2>Embudo por propuesta de valor (cuentas)</h2>' + funnel + fl + '</div>' +
-      '<div class="panel"><h2>Cuentas sin ninguna acción abierta</h2><div class="list">' + idleH + '</div></div></div>';
+      '<div class="panel"><h2>Cuentas sin ninguna acción abierta</h2><div class="list">' + idleH + '</div></div></div>' + '<div class="grid" style="margin-top:14px">' + perAccountPanel() + '</div>';
+  }
+
+  function perAccountPanel(){
+    var days = ML.ui.kpiDays, cutoff = days ? Date.now() - days * 864e5 : 0;
+    var rows = ML.s.accounts.filter(function(a){ return a.active; }).map(function(a){
+      var ts = ML.s.tasks.filter(function(t){ return t.account_id === a.id && (!cutoff || !t.created_at || new Date(t.created_at).getTime() >= cutoff); });
+      var done = ts.filter(function(t){ return t.status === 'hecha'; }).length, over = ts.filter(function(t){ return ML.urgency(t) === 'over'; }).length;
+      return { a: a, n: ts.length, done: done, open: ts.length - done, over: over, pct: ts.length ? Math.round(done / ts.length * 100) : null, stage: ML.bestStage(a.id) };
+    }).sort(function(x, y){ return (y.n - x.n) || x.a.name.localeCompare(y.a.name, 'es'); });
+    var total = rows.reduce(function(m, r){ return m + r.n; }, 0), zero = rows.filter(function(r){ return !r.n; }).length;
+    var max = rows.length ? Math.max(rows[0].n, 1) : 1;
+    var avg = rows.length ? (total / rows.length).toFixed(1).replace('.', ',') : '0';
+    var sel = '<select id="kpiDays">' + [[30, 'Últimos 30 días'], [90, 'Últimos 90 días'], [365, 'Últimos 12 meses'], [0, 'Todo el histórico']].map(function(o){ return '<option value="' + o[0] + '"' + (o[0] === days ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
+    var body = rows.map(function(r){
+      var st = r.stage ? '<span class="pill"' + (ML.stageColor(r.stage) ? ' style="border-color:' + ML.stageColor(r.stage) + '"' : '') + '>' + esc(ML.lab(ML.STAGES, r.stage)) + '</span>' : '<span class="muted">—</span>';
+      return '<tr class="link" data-acc-go="' + esc(r.a.id) + '"><td><b>' + esc(r.a.name) + '</b></td><td class="muted">' + esc(r.a.am || '—') + '</td>' +
+        '<td style="min-width:170px"><div class="bar"><i style="background:var(--ok);width:' + (r.done / max * 100) + '%"></i><i class="seg-later" style="width:' + (r.open / max * 100) + '%"></i></div></td>' +
+        '<td><b>' + r.n + '</b></td><td>' + r.done + '</td><td>' + r.open + '</td><td>' + (r.over ? '<span class="pill over">' + r.over + '</span>' : '0') + '</td><td>' + (r.pct == null ? '—' : r.pct + '%') + '</td><td>' + st + '</td></tr>';
+    }).join('') || '<tr><td colspan="9" class="empty">Sin cuentas activas</td></tr>';
+    return '<div class="panel wide"><div class="filters" style="margin-bottom:4px"><h2 style="margin:0">Tareas por cuenta</h2>' + sel +
+      '<span class="muted">' + total + ' tareas creadas · media ' + avg + ' por cuenta · ' + zero + ' cuentas sin tareas</span></div>' +
+      '<p class="muted" style="margin:0 0 8px;font-size:12px">Mide actividad, no resultado: contrástala con la columna «Avance» (etapa más avanzada de la cuenta). Cuenta tareas por fecha de creación; las migradas o importadas comparten la fecha de carga.</p>' +
+      '<div class="tablewrap" style="max-height:380px;overflow:auto"><table style="min-width:760px"><thead><tr><th>Cuenta</th><th>AM</th><th>Hechas / abiertas</th><th>Tareas</th><th>Hechas</th><th>Abiertas</th><th>Vencidas</th><th>% cierre</th><th>Avance</th></tr></thead><tbody>' + body + '</tbody></table></div></div>';
   }
 
   // ======================= TAREAS =======================
@@ -143,10 +169,8 @@
       '<td class="editable"><input type="date" data-f="due" value="' + esc(t.due || '') + '"> <span class="pill ' + u + '">' + esc(ML.dueText(t)) + '</span></td>' +
       '<td class="editable"><select data-f="status">' + opts(ML.STATUS, t.status) + '</select></td>' +
       '<td class="editable"><select data-f="priority">' + opts(ML.PRIOS, t.priority) + '</select></td>' +
-      '<td class="act"><button class="btn sm" data-a="note" title="Nota">' + (t.note ? '📝' : '＋') + '</button> <button class="btn sm danger editable" data-a="del" title="Borrar">🗑</button></td></tr>';
-    if(ML.ui.openNote === t.id){
-      r += '<tr><td></td><td colspan="9" class="note editable"><textarea data-f="note" placeholder="Nota…">' + esc(t.note) + '</textarea></td></tr>';
-    }
+      '<td class="editable"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
+      '<td class="act editable"><button class="btn sm danger" data-a="del" title="Eliminar tarea">🗑 Eliminar</button></td></tr>';
     return r;
   }
   function tasksView(){
@@ -174,11 +198,11 @@
       '<span style="flex:1"></span><button class="btn sm editable" id="imp">⬆ Importar tareas (JSON)</button><input type="file" id="impf" accept="application/json" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
     list.forEach(function(t){
-      if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
+      if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="12">' + esc(g) + '</td></tr>'; last = g; } }
       body += row(t);
     });
-    if(!list.length) body = '<tr><td colspan="10" class="empty">No hay tareas con este filtro.</td></tr>';
-    return add + fl + '<div class="tablewrap"><table><thead><tr><th></th>' + th('title', 'Tarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
+    if(!list.length) body = '<tr><td colspan="12" class="empty">No hay tareas con este filtro.</td></tr>';
+    return add + fl + '<div class="tablewrap"><table><thead><tr><th></th>' + th('title', 'Tarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th>Comentarios</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   function csvCell(v){ v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
@@ -246,15 +270,14 @@
     v.querySelector('tbody').addEventListener('click', async function(e){
       var b = e.target.closest('[data-a]'); if(!b) return;
       var id = +b.closest('tr').dataset.id;
-      if(b.dataset.a === 'note'){ ui.openNote = ui.openNote === id ? null : id; ML.rerender(); }
-      if(b.dataset.a === 'del' && confirm('¿Borrar esta tarea?')){ await ML.deleteTask(id); ML.rerender(); }
+      if(b.dataset.a === 'del' && confirm('¿Eliminar esta tarea? No se puede deshacer.')){ await ML.deleteTask(id); ML.toast('Tarea eliminada'); ML.rerender(); }
     });
   }
 
   // ======================= CUENTAS =======================
   function accountsView(){
     var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '', vp: '', stage: '' }), q = f.q.trim().toLowerCase();
-    var list = ML.s.accounts.filter(function(a){ if(f.am && a.am !== f.am) return false;
+    var list = ML.s.accounts.filter(function(a){ if(!a.active) return false; if(f.am && a.am !== f.am) return false;
       if(q && a.name.toLowerCase().indexOf(q) < 0) return false;
       if(f.vp || f.stage){
         return ML.s.stages.some(function(s){ return s.account_id === a.id && (!f.vp || s.vp === f.vp) && (f.stage ? s.stage === f.stage : s.stage !== 'no_aplica'); });
@@ -269,7 +292,7 @@
     var body = list.map(function(a){
       var tds = ML.VPS.map(function(v){
         var s = ML.stageOf(a.id, v.k), st = s ? s.stage : 'no_aplica';
-        return '<td class="editable"><select class="stsel st-' + st + '" data-vp="' + v.k + '">' + opts(ML.STAGES, st) + '</select></td>';
+        return '<td class="editable"><select class="stsel st-' + st + '"' + stStyle(st, ';color:#fff') + ' data-vp="' + v.k + '">' + opts(ML.STAGES, st) + '</select></td>';
       }).join('');
       var r = '<tr data-acc="' + esc(a.id) + '"><td><b>' + esc(a.name) + '</b></td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + tds +
         '<td>' + (opn[a.id] ? '<a href="#" data-go="' + esc(a.id) + '">' + opn[a.id] + '</a>' : '<span class="muted">0</span>') + '</td>' +
@@ -313,6 +336,92 @@
     });
   }
 
+  // ======================= CONFIGURACIÓN =======================
+  function cfgList(kind){
+    var rows = ML.rows[kind], sys = ML.SYSTEM[kind];
+    var body = rows.map(function(r, i){
+      var isSys = sys.indexOf(r.key) >= 0, used = ML.listUsed(kind, r.key);
+      return '<tr data-kind="' + kind + '" data-key="' + esc(r.key) + '">' +
+        '<td class="editable"><input data-lf="label" value="' + esc(r.label) + '" style="width:100%"></td>' +
+        (kind === 'stage' ? '<td class="editable"><input type="color" data-lf="color" value="' + (r.color || '#888888') + '" title="Color">' + (r.color ? ' <button class="btn sm" data-la="uncolor" title="Color por defecto">↺</button>' : '') + '</td>' : '') +
+        '<td class="muted" title="Clave interna (no cambia al renombrar)">' + esc(r.key) + (isSys ? ' 🔒' : '') + '</td><td class="muted">' + used + '</td>' +
+        '<td class="editable"><input type="checkbox" data-lf="active" ' + (r.active || isSys ? 'checked' : '') + (isSys ? ' disabled' : '') + ' title="Activo"></td>' +
+        '<td class="act editable"><button class="btn sm" data-la="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-la="down"' + (i === rows.length - 1 ? ' disabled' : '') + '>↓</button> ' +
+        '<button class="btn sm danger" data-la="del"' + (isSys ? ' disabled title="Valor del sistema"' : '') + '>🗑</button></td></tr>';
+    }).join('');
+    return '<div class="panel"><h2>' + esc(ML.LIST_TITLES[kind]) + '</h2><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th>' + (kind === 'stage' ? '<th>Color</th>' : '') + '<th>Clave</th><th>En uso</th><th>Activo</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+      '<form class="filters editable" data-addlist="' + kind + '" style="margin:8px 0 0"><input placeholder="Nuevo valor…" required><button class="btn sm primary" type="submit">Añadir</button></form></div>';
+  }
+  function configView(){
+    var warn = ML.listsOk ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:14px"><b>Las listas aún no son editables.</b> Ejecuta <code>supabase/migration_v3.sql</code> en Supabase (SQL Editor) y recarga. Mientras tanto se usan los valores por defecto.</div>';
+    var people = ML.s.people.map(function(p, i){
+      return '<tr data-person="' + esc(p.name) + '"><td class="editable"><input data-pf="name" value="' + esc(p.name) + '" style="width:100%"></td>' +
+        '<td class="muted">' + (ML.s.accounts.filter(function(a){ return a.am === p.name; }).length) + ' cuentas · ' + ML.s.tasks.filter(function(t){ return t.owner === p.name && ML.isOpen(t); }).length + ' tareas abiertas</td>' +
+        '<td class="editable"><input type="checkbox" data-pf="active"' + (p.active ? ' checked' : '') + ' title="Activo"></td>' +
+        '<td class="act editable"><button class="btn sm" data-pa="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-pa="down"' + (i === ML.s.people.length - 1 ? ' disabled' : '') + '>↓</button> <button class="btn sm danger" data-pa="del">🗑</button></td></tr>';
+    }).join('');
+    var peoplePanel = '<div class="panel"><h2>Responsables (AM)</h2><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th><th>Uso</th><th>Activo</th><th></th></tr></thead><tbody>' + people + '</tbody></table></div>' +
+      '<form class="filters editable" id="addPerson" style="margin:8px 0 0"><input placeholder="Nuevo responsable…" required><button class="btn sm primary" type="submit">Añadir</button></form>' +
+      '<p class="muted" style="font-size:12px">Renombrar actualiza también las cuentas y tareas. Borrar deja esas cuentas y tareas sin responsable.</p></div>';
+    var accs = ML.s.accounts.map(function(a){
+      var n = ML.s.tasks.filter(function(t){ return t.account_id === a.id; }).length;
+      return '<tr data-acc="' + esc(a.id) + '"><td class="editable"><input data-af="name" value="' + esc(a.name) + '" style="width:100%"></td>' +
+        '<td class="editable"><select data-af="am">' + peopleOpts(a.am, '—') + '</select></td><td class="muted">' + n + ' tareas</td>' +
+        '<td class="editable"><input type="checkbox" data-af="active"' + (a.active ? ' checked' : '') + ' title="Activa (visible en Cuentas y listas)"></td>' +
+        '<td class="act editable"><button class="btn sm danger" data-aa="del">🗑</button></td></tr>';
+    }).join('');
+    var accPanel = '<div class="panel"><h2>Cuentas</h2><div class="tablewrap" style="max-height:420px;overflow:auto"><table style="min-width:0"><thead><tr><th>Nombre</th><th>AM</th><th>Uso</th><th>Activa</th><th></th></tr></thead><tbody>' + accs + '</tbody></table></div>' +
+      '<form class="filters editable" id="addAcc" style="margin:8px 0 0"><input placeholder="Nueva cuenta…" required><select>' + peopleOpts('', 'AM') + '</select><button class="btn sm primary" type="submit">Añadir</button></form></div>';
+    var lists = ['vp', 'stage', 'status', 'kind', 'pilar', 'priority'].map(cfgList).join('');
+    return warn + '<p class="muted" style="margin-top:0">Renombrar un valor cambia cómo se ve en toda la app; los datos existentes siguen enlazados por su clave interna. 🔒 = valor que la lógica necesita (se renombra, no se borra). «Activo» desmarcado lo oculta de los desplegables sin tocar los datos antiguos.</p><div class="grid cols">' + peoplePanel + accPanel + lists + '</div>';
+  }
+  function bindConfig(v){
+    if(v.__cfg) return; v.__cfg = true;   // #view es el mismo elemento en cada render: enlazar una sola vez
+    v.addEventListener('submit', async function(e){
+      if(ML.ui.tab !== 'config') return;
+      var f = e.target; e.preventDefault();
+      if(f.dataset.addlist){ var i = f.querySelector('input'); if(await ML.listAdd(f.dataset.addlist, i.value)) ML.toast('Añadido'); ML.rerender(); }
+      else if(f.id === 'addPerson'){ var n = f.querySelector('input').value.trim(); if(n){ await ML.addPerson(n); ML.toast('Añadido'); ML.rerender(); } }
+      else if(f.id === 'addAcc'){ var nm = f.querySelector('input').value.trim(); if(nm){ await ML.addAccount(nm, f.querySelector('select').value); ML.toast('Añadida'); ML.rerender(); } }
+    });
+    v.addEventListener('change', async function(e){
+      if(ML.ui.tab !== 'config') return;
+      var el = e.target, tr = el.closest('tr'); if(!tr) return;
+      if(el.dataset.lf){
+        var val = el.dataset.lf === 'active' ? el.checked : el.value.trim();
+        if(el.dataset.lf === 'label' && !val){ ML.rerender(); return; }
+        await ML.listUpdate(tr.dataset.kind, tr.dataset.key, (function(){ var o = {}; o[el.dataset.lf] = val; return o; })()); ML.rerender();
+      } else if(el.dataset.pf){
+        if(el.dataset.pf === 'name') await ML.renamePerson(tr.dataset.person, el.value); else await ML.updatePerson(tr.dataset.person, { active: el.checked });
+        ML.rerender();
+      } else if(el.dataset.af){
+        var id = tr.dataset.acc, patch = {};
+        if(el.dataset.af === 'active') patch.active = el.checked; else if(el.dataset.af === 'am') patch.am = el.value || null; else { if(!el.value.trim()){ ML.rerender(); return; } patch.name = el.value.trim(); }
+        await ML.updateAccount(id, patch); ML.rerender();
+      }
+    });
+    v.addEventListener('click', async function(e){
+      if(ML.ui.tab !== 'config') return;
+      var b = e.target.closest('[data-la],[data-pa],[data-aa]'); if(!b || b.disabled) return;
+      var tr = b.closest('tr');
+      if(b.dataset.la){
+        var k = tr.dataset.kind, key = tr.dataset.key;
+        if(b.dataset.la === 'up') await ML.listMove(k, key, -1);
+        else if(b.dataset.la === 'down') await ML.listMove(k, key, 1);
+        else if(b.dataset.la === 'uncolor') await ML.listUpdate(k, key, { color: '' });
+        else if(b.dataset.la === 'del' && confirm('¿Borrar este valor?')) await ML.listDelete(k, key);
+        ML.rerender();
+      } else if(b.dataset.pa){
+        var nm = tr.dataset.person;
+        if(b.dataset.pa === 'up') await ML.movePerson(nm, -1); else if(b.dataset.pa === 'down') await ML.movePerson(nm, 1);
+        else if(confirm('¿Borrar a ' + nm + '? Sus cuentas y tareas quedarán sin responsable.')) await ML.deletePerson(nm);
+        ML.rerender();
+      } else if(b.dataset.aa === 'del'){
+        if(confirm('¿Borrar la cuenta y sus etapas? Sus tareas se conservan sin cuenta. Si solo quieres ocultarla, desmarca «Activa».')){ await ML.deleteAccount(tr.dataset.acc); ML.rerender(); }
+      }
+    });
+  }
+
   // ======================= Render principal =======================
   ML.render = function(){
     var v = $('view'), ui = ML.ui;
@@ -321,6 +430,8 @@
     if(ui.tab === 'dashboard'){
       v.innerHTML = dashboard();
       v.querySelectorAll('[data-quick]').forEach(function(k){ k.onclick = function(){ ui.quick = k.dataset.quick; ML.setTab('tasks'); }; });
+      var kd = v.querySelector('#kpiDays'); if(kd) kd.onchange = function(){ ui.kpiDays = +kd.value; ML.rerender(); };
+      v.querySelectorAll('[data-acc-go]').forEach(function(r){ r.onclick = function(){ ui.f = { account: [r.dataset.accGo], owner: [], vp: [], pilar: [], status: [], q: '' }; ui.quick = 'todas'; ui.group = ''; ML.setTab('tasks'); }; });
       v.querySelectorAll('[data-own]').forEach(function(r){ r.onclick = function(e){
         var seg = e.target.closest('[data-seg]'), k = seg ? seg.dataset.seg : '';
         ui.f = { account: [], owner: [r.dataset.own], vp: [], pilar: [], status: [], q: '' }; ui.group = ''; ui.msOpen = null;
@@ -333,6 +444,7 @@
         ML.setTab('accounts');
       }; });
     } else if(ui.tab === 'tasks'){ v.innerHTML = tasksView(); bindTasks(v); }
+    else if(ui.tab === 'config'){ v.innerHTML = configView(); bindConfig(v); }
     else { v.innerHTML = accountsView(); bindAccounts(v); }
   };
   ML.rerender = ML.render;
