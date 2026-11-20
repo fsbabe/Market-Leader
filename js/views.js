@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   var ML = window.ML, esc = ML.esc;
-  ML.ui = { tab: 'dashboard', kpiDays: 90, quick: 'abiertas', f: { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }, msOpen: null, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null };
+  ML.ui = { tab: 'dashboard', kpiDays: 90, quick: 'abiertas', f: { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }, msOpen: null, group: '', sort: 'due', dir: 1, openNote: null, openAcc: null, collapsed: {}, addSub: null };
   var $ = function(id){ return document.getElementById(id); };
 
   function opts(list, sel, blank){
@@ -17,7 +17,7 @@
   function vpOpts(sel, blank){ return opts(ML.VPS.map(function(v){ return [v.k, v.label]; }), sel, blank); }
   function stStyle(k, extra){ var c = ML.stageColor(k); return c ? ' style="background:' + c + (extra || '') + '"' : (extra ? ' style="' + extra.replace(/^;/, '') + '"' : ''); }
   // ---- Columnas redimensionables (anchos en %, recordados en el navegador) ----
-  var TASK_COLS = [3, 27, 12, 10, 8, 10, 11, 9, 7, 3];
+  var TASK_COLS = [3, 25, 11, 9, 7, 10, 11, 9, 7, 8];
   function accCols(){ var n = ML.VPS.length, rest = 62, each = Math.floor(rest / n * 100) / 100, a = [14, 12]; for(var i = 0; i < n; i++) a.push(each); a.push(8, 4); var s = a.reduce(function(x, y){ return x + y; }, 0); a[2] = Math.round((a[2] + 100 - s) * 100) / 100; return a; }
   function loadW(key, def){ try{ var a = JSON.parse(localStorage.getItem('ml_cols_' + key)); if(Array.isArray(a) && a.length === def.length && Math.abs(a.reduce(function(x, y){ return x + y; }, 0) - 100) < 1) return a; }catch(e){} return def; }
   function colgroup(key, def){ return '<colgroup>' + loadW(key, def).map(function(w){ return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; }
@@ -49,23 +49,24 @@
       (open ? '<div class="msp">' + items.map(function(i){ return '<label><input type="checkbox" data-msk="' + key + '" value="' + esc(i[0]) + '"' + (sel.indexOf(i[0]) >= 0 ? ' checked' : '') + '> ' + esc(i[1]) + '</label>'; }).join('') + '</div>' : '') + '</div>';
   }
   function openTasks(){ return ML.s.tasks.filter(ML.isOpen); }
+  function openLeaves(){ return ML.leaves().filter(ML.isOpen); }   // lo que realmente hay que hacer
 
   // Contadores de cabecera (recordatorios en la app)
   ML.counters = function(){
-    var o = openTasks(), over = 0, soon = 0;
+    var o = openLeaves(), over = 0, soon = 0;
     o.forEach(function(t){ var u = ML.urgency(t); if(u === 'over') over++; else if(u === 'soon') soon++; });
     var co = $('chip-over'), cs = $('chip-soon');
     co.hidden = !over; co.textContent = over + ' vencida' + (over === 1 ? '' : 's');
     cs.hidden = !soon; cs.textContent = soon + ' en ≤3 días';
-    $('b-open').textContent = o.length ? '(' + o.length + ')' : '';
+    var nt = ML.topTasks().filter(ML.isOpen).length; $('b-open').textContent = nt ? '(' + nt + ')' : '';
   };
 
   // ======================= CUADRO DE MANDO =======================
   function dashboard(){
-    var o = openTasks(), t = ML.today();
+    var o = openLeaves(), t = ML.today();
     var cnt = { over: 0, soon: 0, week: 0, none: 0, noOwner: 0 };
     o.forEach(function(x){ var u = ML.urgency(x); if(cnt[u] != null) cnt[u]++; if(!x.owner) cnt.noOwner++; });
-    var d30 = ML.s.tasks.filter(function(x){ return x.status === 'hecha' && x.done_at && (Date.now() - new Date(x.done_at).getTime()) < 30 * 864e5; }).length;
+    var d30 = ML.leaves().filter(function(x){ return x.status === 'hecha' && x.done_at && (Date.now() - new Date(x.done_at).getTime()) < 30 * 864e5; }).length;
     var kp = function(cls, n, label, quick){ return '<div class="kpi ' + cls + '" data-quick="' + quick + '"><b>' + n + '</b><span>' + label + '</span></div>'; };
     var h = '<div class="grid kpis">' + kp('over', cnt.over, 'Vencidas', 'vencidas') + kp('soon', cnt.soon, 'En 0–3 días', 'semana') + kp('week', cnt.week, 'En 4–7 días', 'semana') +
       kp('', cnt.none, 'Sin fecha', 'sinfecha') + kp('', cnt.noOwner, 'Sin responsable', 'abiertas') + kp('ok', d30, 'Hechas (30 días)', 'hechas') + '</div>';
@@ -93,7 +94,7 @@
     var fl = '<div class="legend">' + ML.STAGES.filter(function(s){ return s[0] !== 'no_aplica'; }).map(function(s){ return '<span><i class="st-' + s[0] + '"' + stStyle(s[0]) + '></i>' + esc(s[1]) + '</span>'; }).join('') + '</div>';
 
     // Cuentas activas (Core o AI) sin ninguna tarea abierta
-    var withTask = {}; o.forEach(function(x){ if(x.account_id) withTask[x.account_id] = 1; });
+    var withTask = {}; ML.topTasks().filter(ML.isOpen).forEach(function(x){ if(x.account_id) withTask[x.account_id] = 1; });
     var idle = ML.s.accounts.filter(function(a){
       if(!a.active || withTask[a.id]) return false;
       return ML.s.stages.some(function(s){ return s.account_id === a.id && ML.ACTIVE_STAGES.indexOf(s.stage) >= 0 && s.stage !== 'sin_contacto' || (s.account_id === a.id && s.stage === 'sin_contacto' && (s.vp === 'ai')); });
@@ -104,12 +105,13 @@
     var next = o.filter(function(x){ var u = ML.urgency(x); return u === 'over' || u === 'soon' || u === 'week'; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; });
     var nextH = next.slice(0, 15).map(function(x){
       var u = ML.urgency(x);
-      return '<div class="it"><span class="t">' + esc(x.title) + '<br><span class="m">' + esc([accName(x.account_id), x.vp ? ML.vpLabel(x.vp) : '', x.owner].filter(Boolean).join(' · ')) + '</span></span><span class="pill ' + u + '">' + ML.fmt(x.due) + ' · ' + ML.dueText(x) + '</span></div>';
+      var e = ML.eff(x), par = ML.parentOf(x);
+      return '<div class="it"><span class="t"><span class="tid">' + ML.code(x) + '</span> ' + esc(x.title) + '<br><span class="m">' + esc([par ? 'Subtarea de «' + par.title + '»' : '', accName(e.account_id), e.vp ? ML.vpLabel(e.vp) : '', x.owner].filter(Boolean).join(' · ')) + '</span></span><span class="pill ' + u + '">' + ML.fmt(x.due) + ' · ' + ML.dueText(x) + '</span></div>';
     }).join('') + (next.length > 15 ? '<p class="muted">… y ' + (next.length - 15) + ' más (pestaña Tareas)</p>' : '') || '<p class="empty">Nada vence en los próximos 7 días</p>';
 
     return h + '<div class="grid cols">' +
       '<div class="panel"><h2>Vencen pronto</h2><div class="list">' + nextH + '</div></div>' +
-      '<div class="panel"><h2>Carga por responsable (tareas abiertas)</h2>' + load + legend + '</div>' +
+      '<div class="panel"><h2>Carga por responsable (subtareas y tareas sin subtareas abiertas)</h2>' + load + legend + '</div>' +
       '<div class="panel"><h2>Embudo por propuesta de valor (cuentas)</h2>' + funnel + fl + '</div>' +
       '<div class="panel"><h2>Cuentas sin ninguna acción abierta</h2><div class="list">' + idleH + '</div></div></div>' + '<div class="grid" style="margin-top:14px">' + perAccountPanel() + '</div>';
   }
@@ -117,9 +119,10 @@
   function perAccountPanel(){
     var days = ML.ui.kpiDays, cutoff = days ? Date.now() - days * 864e5 : 0;
     var rows = ML.s.accounts.filter(function(a){ return a.active; }).map(function(a){
-      var ts = ML.s.tasks.filter(function(t){ return t.account_id === a.id && (!cutoff || !t.created_at || new Date(t.created_at).getTime() >= cutoff); });
+      var ts = ML.topTasks().filter(function(t){ return t.account_id === a.id && (!cutoff || !t.created_at || new Date(t.created_at).getTime() >= cutoff); });
       var done = ts.filter(function(t){ return t.status === 'hecha'; }).length, over = ts.filter(function(t){ return ML.urgency(t) === 'over'; }).length;
-      return { a: a, n: ts.length, done: done, open: ts.length - done, over: over, pct: ts.length ? Math.round(done / ts.length * 100) : null, stage: ML.bestStage(a.id) };
+      var subs = 0, subsDone = 0; ts.forEach(function(t){ ML.childrenOf(t.id).forEach(function(k){ subs++; if(k.status === 'hecha') subsDone++; }); });
+      return { a: a, n: ts.length, done: done, open: ts.length - done, over: over, subs: subs, subsDone: subsDone, pct: ts.length ? Math.round(done / ts.length * 100) : null, stage: ML.bestStage(a.id) };
     }).sort(function(x, y){ return (y.n - x.n) || x.a.name.localeCompare(y.a.name, 'es'); });
     var total = rows.reduce(function(m, r){ return m + r.n; }, 0), zero = rows.filter(function(r){ return !r.n; }).length;
     var max = rows.length ? Math.max(rows[0].n, 1) : 1;
@@ -129,15 +132,15 @@
       var st = r.stage ? '<span class="pill"' + (ML.stageColor(r.stage) ? ' style="border-color:' + ML.stageColor(r.stage) + '"' : '') + '>' + esc(ML.lab(ML.STAGES, r.stage)) + '</span>' : '<span class="muted">—</span>';
       return '<tr class="link" data-acc-go="' + esc(r.a.id) + '"><td><b>' + esc(r.a.name) + '</b></td><td class="muted">' + esc(r.a.am || '—') + '</td>' +
         '<td style="min-width:170px"><div class="bar"><i style="background:var(--ok);width:' + (r.done / max * 100) + '%"></i><i class="seg-later" style="width:' + (r.open / max * 100) + '%"></i></div></td>' +
-        '<td><b>' + r.n + '</b></td><td>' + r.done + '</td><td>' + r.open + '</td><td>' + (r.over ? '<span class="pill over">' + r.over + '</span>' : '0') + '</td><td>' + (r.pct == null ? '—' : r.pct + '%') + '</td><td>' + st + '</td></tr>';
-    }).join('') || '<tr><td colspan="9" class="empty">Sin cuentas activas</td></tr>';
+        '<td><b>' + r.n + '</b></td><td>' + r.done + '</td><td>' + r.open + '</td><td class="muted">' + (r.subs ? r.subsDone + '/' + r.subs : '—') + '</td><td>' + (r.over ? '<span class="pill over">' + r.over + '</span>' : '0') + '</td><td>' + (r.pct == null ? '—' : r.pct + '%') + '</td><td>' + st + '</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="empty">Sin cuentas activas</td></tr>';
     return '<div class="panel wide"><div class="filters" style="margin-bottom:4px"><h2 style="margin:0">Tareas por cuenta</h2>' + sel +
       '<span class="muted">' + total + ' tareas creadas · media ' + avg + ' por cuenta · ' + zero + ' cuentas sin tareas</span></div>' +
-      '<p class="muted" style="margin:0 0 8px;font-size:12px">Mide actividad, no resultado: contrástala con la columna «Avance» (etapa más avanzada de la cuenta). Cuenta tareas por fecha de creación; las migradas o importadas comparten la fecha de carga.</p>' +
-      '<div class="tablewrap" style="max-height:380px;overflow:auto"><table style="min-width:760px"><thead><tr><th>Cuenta</th><th>AM</th><th>Hechas / abiertas</th><th>Tareas</th><th>Hechas</th><th>Abiertas</th><th>Vencidas</th><th>% cierre</th><th>Avance</th></tr></thead><tbody>' + body + '</tbody></table></div></div>';
+      '<p class="muted" style="margin:0 0 8px;font-size:12px">Cuenta tareas (no subtareas) por fecha de creación. Mide actividad, no resultado: contrástala con la columna «Avance» (etapa más avanzada de la cuenta); las migradas o importadas comparten la fecha de carga.</p>' +
+      '<div class="tablewrap" style="max-height:380px;overflow:auto"><table style="min-width:760px"><thead><tr><th>Cuenta</th><th>AM</th><th>Hechas / abiertas</th><th>Tareas</th><th>Hechas</th><th>Abiertas</th><th>Subtareas (hechas/total)</th><th>Vencidas</th><th>% cierre</th><th>Avance</th></tr></thead><tbody>' + body + '</tbody></table></div></div>';
   }
 
-  // ======================= TAREAS =======================
+  // ======================= TAREAS (con subtareas) =======================
   var QUICK = [['abiertas', 'Abiertas'], ['vencidas', 'Vencidas'], ['semana', 'Próx. 7 días'], ['sinfecha', 'Sin fecha'], ['hechas', 'Hechas'], ['todas', 'Todas']];
   function passQuick(t, q){
     var u = ML.urgency(t);
@@ -148,65 +151,97 @@
     if(q === 'hechas') return t.status === 'hecha';
     return true;
   }
-  function visible(){
-    var f = ML.ui.f, q = f.q.trim().toLowerCase();
-    var list = ML.s.tasks.filter(function(t){
-      if(!passQuick(t, ML.ui.quick)) return false;
-      if(f.account.length && f.account.indexOf(t.account_id) < 0) return false;
-      if(f.owner.length && f.owner.indexOf(t.owner || '__none') < 0) return false;
-      if(f.vp.length && f.vp.indexOf(t.vp) < 0) return false;
-      if(f.pilar.length && f.pilar.indexOf(t.pilar) < 0) return false;
-      if(f.status.length && f.status.indexOf(t.status) < 0) return false;
-      if(q && String(t.id) !== q.replace(/^#/, '') && (t.title + ' ' + accName(t.account_id) + ' ' + (t.owner || '') + ' ' + (t.note || '') + ' ' + (t.scope_text || '')).toLowerCase().indexOf(q) < 0) return false;
-      return true;
-    });
+  // Una fila (tarea o subtarea) pasa los filtros; cuenta, VP y pilar de una subtarea son los de su tarea
+  function passRow(t){
+    var f = ML.ui.f, q = f.q.trim().toLowerCase(), e = ML.eff(t);
+    if(!passQuick(t, ML.ui.quick)) return false;
+    if(f.account.length && f.account.indexOf(e.account_id) < 0) return false;
+    if(f.owner.length && f.owner.indexOf(t.owner || '__none') < 0) return false;
+    if(f.vp.length && f.vp.indexOf(e.vp) < 0) return false;
+    if(f.pilar.length && f.pilar.indexOf(e.pilar) < 0) return false;
+    if(f.status.length && f.status.indexOf(t.status) < 0) return false;
+    if(q){
+      var nq = q.replace(/^#/, ''), code = ML.code(t);
+      var byCode = /^[\d-]+$/.test(nq) && (code === nq || code.replace(/(^|-)0+(?=\d)/g, '$1') === nq.replace(/(^|-)0+(?=\d)/g, '$1'));
+      if(!byCode && (t.title + ' ' + accName(e.account_id) + ' ' + (t.owner || '') + ' ' + (t.note || '') + ' ' + (t.scope_text || '')).toLowerCase().indexOf(q) < 0) return false;
+    }
+    return true;
+  }
+  function cmpRows(a, b){
     var key = ML.ui.sort, dir = ML.ui.dir;
     var val = function(t){
       if(key === 'due') return t.due || (dir > 0 ? '9999' : '');
-      if(key === 'account') return accName(t.account_id).toLowerCase() || '￿';
+      if(key === 'account') return accName(ML.eff(t).account_id).toLowerCase() || '￿';
       if(key === 'priority') return { alta: 0, media: 1, baja: 2 }[t.priority];
       if(key === 'status') return ML.STATUS.map(function(s){ return s[0]; }).indexOf(t.status);
       return String(t[key] || '').toLowerCase() || '￿';
     };
-    list.sort(function(a, b){ var x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || a.id - b.id; });
-    return list;
+    var x = val(a), y = val(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * dir || ((a.task_no || a.sub_no || a.id) - (b.task_no || b.sub_no || b.id));
   }
+  // Árbol visible: una tarea se muestra si ella o alguna de sus subtareas pasa los filtros; debajo, las subtareas que pasan
+  function tree(){
+    var nodes = [];
+    ML.topTasks().forEach(function(T){
+      var all = ML.childrenOf(T.id), kids = all.filter(passRow), self = passRow(T);
+      if(!self && !kids.length) return;
+      kids.sort(cmpRows);
+      nodes.push({ t: T, kids: kids, all: all, self: self });
+    });
+    nodes.sort(function(a, b){ return cmpRows(a.t, b.t); });
+    return nodes;
+  }
+  function flat(nodes){ var r = []; nodes.forEach(function(n){ r.push(n.t); n.kids.forEach(function(k){ r.push(k); }); }); return r; }
   function groupKey(t){
-    var g = ML.ui.group;
+    var g = ML.ui.group, e = ML.eff(t);
     if(g === 'owner') return t.owner || '(sin responsable)';
-    if(g === 'account') return accName(t.account_id) || '(sin cuenta)';
-    if(g === 'vp') return t.vp ? ML.vpLabel(t.vp) : '(sin VP)';
+    if(g === 'account') return accName(e.account_id) || '(sin cuenta)';
+    if(g === 'vp') return e.vp ? ML.vpLabel(e.vp) : '(sin VP)';
     return '';
   }
-  function row(t){
-    var u = ML.urgency(t), ro = '';
-    var pc = ML.pilarColor(t.pilar);
-    var pil = '<span class="tid" title="ID de la tarea">#' + t.id + '</span> <select class="ptag" data-f="pilar" title="Pilar (clic para cambiar)" style="background:' + pc + ';color:' + ML.textOn(pc) + '">' + opts(ML.PILARES, t.pilar) + '</select>';
-    var r = '<tr class="u-' + u + '" data-id="' + t.id + '">' +
+  function pill(kind, field, t){ return '<select class="cpill" data-f="' + field + '" style="' + ML.pillStyle(kind, t[field]) + '">' + opts(kind === 'status' ? ML.STATUS : ML.PRIOS, t[field]) + '</select>'; }
+  function row(n, t){
+    var sub = ML.isSub(t), u = ML.urgency(t), e = ML.eff(t), code = ML.code(t), r;
+    var kids = sub ? [] : n.all, kidsDone = kids.filter(function(k){ return k.status === 'hecha'; }).length, collapsed = !!ML.ui.collapsed[t.id];
+    var tag = '<span class="tid" title="' + (sub ? 'Código de la subtarea (tarea-subtarea)' : 'Código de la tarea') + '">' + code + '</span>';
+    if(!sub){ var pc = ML.pilarColor(t.pilar); tag += ' <select class="ptag" data-f="pilar" title="Pilar (clic para cambiar)" style="background:' + pc + ';color:' + ML.textOn(pc) + '">' + opts(ML.PILARES, t.pilar) + '</select>'; }
+    if(kids.length) tag = '<button class="tg" data-a="toggle" title="Mostrar / ocultar subtareas">' + (collapsed ? '▸' : '▾') + '</button> ' + tag + ' <span class="prog" title="Subtareas hechas / total">' + kidsDone + '/' + kids.length + '</span>';
+    var par = sub ? ML.parentOf(t) : null, late = sub && par && par.due && t.due && t.due > par.due && t.status !== 'hecha';
+    var actions = sub
+      ? '<button class="btn sm" data-a="move" title="Cambiar de tarea">⇄</button> <button class="btn sm" data-a="promote" title="Convertir en tarea">↱</button> '
+      : (ML.hasHier ? '<button class="btn sm" data-a="addsub" title="Añadir subtarea">＋</button> <button class="btn sm" data-a="tosub" title="Convertir en subtarea de otra tarea">↳</button> ' : '');
+    r = '<tr class="u-' + u + (sub ? ' sub' : '') + (n.self || sub ? '' : ' ctx') + '" data-id="' + t.id + '">' +
       '<td class="act editable"><input type="checkbox" data-f="done"' + (t.status === 'hecha' ? ' checked' : '') + ' title="Marcar hecha"></td>' +
-      '<td class="editable"><div class="tagline">' + pil + '</div><input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
-      '<td class="editable"><select data-f="account_id">' + accOpts(t.account_id, '—') + '</select></td>' +
-      '<td class="editable"><select data-f="vp">' + vpOpts(t.vp, '—') + '</select></td>' +
-      '<td class="editable"><select data-f="kind">' + opts(ML.KINDS, t.kind) + '</select></td>' +
+      '<td class="editable"><div class="tagline">' + tag + '</div><input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
+      (sub ? '<td class="inh" title="Heredado de la tarea">' + esc(accName(e.account_id) || '—') + '</td><td class="inh">' + esc(e.vp ? ML.vpLabel(e.vp) : '—') + '</td>'
+           : '<td class="editable"><select data-f="account_id">' + accOpts(t.account_id, '—') + '</select></td><td class="editable"><select data-f="vp">' + vpOpts(t.vp, '—') + '</select></td>') +
+      (sub ? '<td class="editable"><select data-f="kind">' + opts(ML.KINDS, t.kind) + '</select></td>' : '<td class="inh">—</td>') +
       '<td class="editable"><select data-f="owner">' + peopleOpts(t.owner, '—') + '</select></td>' +
-      '<td class="editable dt"><input type="date" data-f="due" value="' + esc(t.due || '') + '">' + (ML.dueText(t) ? '<br><span class="pill ' + u + '">' + esc(ML.dueText(t)) + '</span>' : '') + '</td>' +
-      '<td class="editable"><select data-f="status">' + opts(ML.STATUS, t.status) + '</select></td>' +
-      '<td class="editable"><select data-f="priority">' + opts(ML.PRIOS, t.priority) + '</select></td>' +
-      '<td class="act editable"><button class="btn sm danger rd" data-a="del" title="Eliminar tarea" aria-label="Eliminar tarea">🗑</button></td></tr>';
+      '<td class="editable dt"><input type="date" data-f="due" value="' + esc(t.due || '') + '">' + (ML.dueText(t) ? '<br><span class="pill ' + u + '">' + esc(ML.dueText(t)) + '</span>' : '') +
+        (late ? '<br><span class="pill soon" title="La fecha de la subtarea es posterior a la de su tarea (' + esc(ML.fmt(par.due)) + ')">⚠ tras la tarea</span>' : '') + '</td>' +
+      '<td class="editable">' + pill('status', 'status', t) + '</td>' +
+      '<td class="editable">' + pill('priority', 'priority', t) + '</td>' +
+      '<td class="act editable">' + actions + '<button class="btn sm danger rd" data-a="del" title="Eliminar" aria-label="Eliminar">🗑</button></td></tr>';
     return r;
   }
+  function addSubRow(T){
+    return '<tr class="addsub" data-parent="' + T.id + '"><td></td><td colspan="9"><form class="filters" data-addsub="' + T.id + '" style="margin:2px 0 2px 22px">' +
+      '<span class="muted">Nueva subtarea de <b>' + ML.code(T) + '</b>:</span><input name="title" placeholder="Título de la subtarea…" required style="min-width:240px;flex:1">' +
+      '<select name="kind">' + opts(ML.KINDS, 'otro') + '</select><select name="owner">' + peopleOpts(T.owner, 'Responsable') + '</select><input type="date" name="due" title="Fecha">' +
+      '<button class="btn sm primary" type="submit">Añadir subtarea</button><button class="btn sm" type="button" data-a="cancelsub">Cancelar</button></form></td></tr>';
+  }
   function tasksView(){
-    var f = ML.ui.f, list = visible();
+    var f = ML.ui.f, nodes = tree(), nsub = nodes.reduce(function(m, n){ return m + n.kids.length; }, 0);
     var th = function(k, l){ return '<th class="s" data-sort="' + k + '">' + l + (ML.ui.sort === k ? (ML.ui.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>'; };
+    var warn = ML.hasHier ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:12px"><b>Subtareas desactivadas.</b> Ejecuta <code>supabase/migration_v4.sql</code> en Supabase y recarga.</div>';
     var add = '<form class="add" id="addForm">' +
       '<input id="a-title" placeholder="Nueva tarea…" required>' +
       '<select id="a-acc">' + accOpts('', 'Cuenta') + '</select>' +
       '<select id="a-vp">' + vpOpts('', 'VP') + '</select>' +
-      '<select id="a-kind">' + opts(ML.KINDS, 'otro') + '</select>' +
       '<select id="a-owner">' + peopleOpts('', 'Responsable') + '</select>' +
       '<input type="date" id="a-due" title="Fecha límite">' +
-      '<button class="btn primary" type="submit">Añadir</button>' +
-      '<select id="a-other" title="Si no es de cuenta ni de VP"><option value="">Otro: —</option><option value="partnership">Partnership</option><option value="marketing">Marketing</option></select></form>';
+      '<select id="a-other" title="Si no es de cuenta ni de VP"><option value="">Otro: —</option><option value="partnership">Partnership</option><option value="marketing">Marketing</option></select>' +
+      '<button class="btn primary" type="submit">Añadir</button></form>';
     var chips = '<div class="chips">' + QUICK.map(function(q){ return '<button data-q="' + q[0] + '" class="' + (ML.ui.quick === q[0] ? 'on' : '') + '">' + q[1] + '</button>'; }).join(' ') + '</div>';
     var fl = '<div class="filters">' + chips +
       ms('account', 'Todas las cuentas', ML.s.accounts.map(function(a){ return [a.id, a.name]; })) +
@@ -214,25 +249,75 @@
       ms('vp', 'Todas las VP', ML.VPS.map(function(v){ return [v.k, v.label]; })) +
       ms('pilar', 'Todos los pilares', ML.PILARES) +
       ms('status', 'Todos los estados', ML.STATUS) +
-      '<input data-flt="q" placeholder="Buscar…" value="' + esc(f.q) + '">' +
+      '<input data-flt="q" placeholder="Buscar (texto o código 01-02)…" value="' + esc(f.q) + '">' +
       '<select id="grp">' + opts([['', 'Sin agrupar'], ['owner', 'Agrupar: responsable'], ['account', 'Agrupar: cuenta'], ['vp', 'Agrupar: VP']], ML.ui.group) + '</select>' +
-      '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + list.length + ' tareas</span>' +
+      '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + nodes.length + ' tareas · ' + nsub + ' subtareas</span>' +
+      '<button class="btn sm" id="exp-all">Expandir todo</button><button class="btn sm" id="col-all">Contraer todo</button>' +
       '<span style="flex:1"></span><button class="btn sm editable" id="imp-paste">📋 Pegar tareas</button><button class="btn sm editable" id="imp">⬆ Importar archivo JSON</button><input type="file" id="impf" accept="application/json,.json,text/plain" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
-    list.forEach(function(t){
-      if(ML.ui.group){ var g = groupKey(t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
-      body += row(t);
+    nodes.forEach(function(n){
+      if(ML.ui.group){ var g = groupKey(n.t); if(g !== last){ body += '<tr class="grp"><td colspan="10">' + esc(g) + '</td></tr>'; last = g; } }
+      body += row(n, n.t);
+      var force = !n.self;   // si la tarea solo aparece por sus subtareas, se muestran siempre
+      if(!ML.ui.collapsed[n.t.id] || force) n.kids.forEach(function(k){ body += row(n, k); });
+      if(ML.ui.addSub === n.t.id) body += addSubRow(n.t);
     });
-    if(!list.length) body = '<tr><td colspan="10" class="empty">No hay tareas con este filtro.</td></tr>';
-    return add + fl + '<div class="tablewrap"><table class="fx" data-cols="tasks">' + colgroup('tasks', TASK_COLS) + '<thead><tr><th></th>' + th('title', 'Tarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
+    if(!nodes.length) body = '<tr><td colspan="10" class="empty">No hay tareas con este filtro.</td></tr>';
+    return warn + add + fl + '<div class="tablewrap"><table class="fx" data-cols="tasks2">' + colgroup('tasks2', TASK_COLS) + '<thead><tr><th></th>' + th('title', 'Tarea / subtarea') + th('account', 'Cuenta') + '<th>VP</th><th>Tipo</th>' + th('owner', 'Responsable') + th('due', 'Fecha límite') + th('status', 'Estado') + th('priority', 'Prior.') + '<th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   function csvCell(v){ v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
   function exportCsv(){
-    var rows = [['ID', 'Tarea', 'Cuenta', 'VP', 'Pilar', 'Tipo', 'Responsable', 'Fecha límite', 'Estado', 'Prioridad', 'Nota']];
-    visible().forEach(function(t){ rows.push([t.id, t.title, accName(t.account_id), ML.vpLabel(t.vp), ML.lab(ML.PILARES, t.pilar), ML.lab(ML.KINDS, t.kind), t.owner || '', t.due || '', ML.lab(ML.STATUS, t.status), t.priority, t.note]); });
+    var rows = [['Código', 'Nivel', 'Código tarea', 'Título', 'Cuenta', 'VP', 'Pilar', 'Tipo', 'Responsable', 'Fecha límite', 'Estado', 'Prioridad', 'Comentarios']];
+    flat(tree()).forEach(function(t){
+      var e = ML.eff(t), p = ML.parentOf(t);
+      rows.push([ML.code(t), p ? 'Subtarea' : 'Tarea', p ? ML.code(p) : '', t.title, accName(e.account_id), ML.vpLabel(e.vp), ML.lab(ML.PILARES, e.pilar), p ? ML.lab(ML.KINDS, t.kind) : '', t.owner || '', t.due || '', ML.lab(ML.STATUS, t.status), ML.lab(ML.PRIOS, t.priority), t.note]);
+    });
     var blob = new Blob(['﻿' + rows.map(function(r){ return r.map(csvCell).join(';'); }).join('\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tareas-' + ML.today() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // Cambiar de estado con coherencia entre tarea y subtareas
+  async function setStatus(id, status){
+    var t = ML.task(id);
+    if(status === 'hecha' && !ML.isSub(t)){
+      var open = ML.childrenOf(id).filter(ML.isOpen);
+      if(open.length && confirm('La tarea tiene ' + open.length + ' subtarea' + (open.length === 1 ? '' : 's') + ' abierta' + (open.length === 1 ? '' : 's') + '.\n\nAceptar = marcarlas también como hechas.\nCancelar = marcar solo la tarea.')){
+        for(var i = 0; i < open.length; i++) await ML.updateTask(open[i].id, { status: 'hecha' });
+      }
+    }
+    await ML.updateTask(id, { status: status });
+    if(ML.isSub(t) && status === 'hecha'){
+      var p = ML.parentOf(t);
+      if(p && p.status !== 'hecha' && ML.childrenOf(p.id).every(function(k){ return k.status === 'hecha'; }) && confirm('Todas las subtareas de «' + p.title + '» están hechas.\n¿Marcar también la tarea como hecha?')) await ML.updateTask(p.id, { status: 'hecha' });
+    }
+  }
+
+  // Elegir de qué tarea cuelga (convertir en subtarea / mover una subtarea)
+  function openParentPicker(id){
+    var t = ML.task(id), isMove = ML.isSub(t);
+    if(!isMove && ML.childrenOf(id).length){ ML.toast('Esta tarea tiene subtareas: muévelas o conviértelas en tareas antes (solo hay un nivel).', true); return; }
+    var cands = ML.topTasks().filter(function(x){ return x.id !== id && x.id !== t.parent_id; }).sort(function(a, b){ return (a.task_no || a.id) - (b.task_no || b.id); });
+    var m = $('modal'); m.hidden = false;
+    function optsHtml(q){
+      q = (q || '').toLowerCase();
+      return cands.filter(function(c){ return !q || (ML.code(c) + ' ' + c.title + ' ' + accName(c.account_id)).toLowerCase().indexOf(q) >= 0; })
+        .map(function(c){ return '<option value="' + c.id + '">' + esc(ML.code(c) + ' · ' + c.title.slice(0, 80) + (accName(c.account_id) ? ' — ' + accName(c.account_id) : '')) + '</option>'; }).join('');
+    }
+    m.innerHTML = '<div class="box"><h2>' + (isMove ? 'Cambiar la subtarea de tarea' : 'Convertir en subtarea') + '</h2>' +
+      '<p style="margin-top:0"><b>' + esc(ML.code(t)) + ' · ' + esc(t.title) + '</b></p>' +
+      '<p class="muted">¿De qué tarea cuelga? Heredará su cuenta, VP y pilar, y su código cambiará (p. ej. ' + esc(ML.code(t)) + ' → 03-04).' + (isMove ? '' : ' Los datos de cuenta y pilar que tenía se conservan, pero dejan de mostrarse.') + '</p>' +
+      '<input id="pp-q" placeholder="Filtrar por código, título o cuenta…" style="width:100%;margin-bottom:6px"><select id="pp-sel" size="10" style="width:100%">' + optsHtml('') + '</select>' +
+      '<p style="text-align:right;margin-bottom:0"><button class="btn" id="pp-x">Cancelar</button> <button class="btn primary" id="pp-go">Convertir</button></p></div>';
+    $('pp-q').focus();
+    $('pp-q').oninput = function(){ $('pp-sel').innerHTML = optsHtml($('pp-q').value); };
+    $('pp-x').onclick = closeModal;
+    $('pp-go').onclick = async function(){
+      var val = $('pp-sel').value; if(!val){ ML.toast('Elige la tarea de la que cuelga', true); return; }
+      var err = await ML.moveUnder(id, +val); closeModal();
+      if(err) ML.toast(err, true); else ML.toast('Hecho: ahora es la subtarea ' + ML.code(ML.task(id)));
+      ML.rerender();
+    };
   }
 
   function bindTasks(v){
@@ -244,9 +329,9 @@
       e.preventDefault();
       var acc = accSel.value, vp = v.querySelector('#a-vp').value, other = v.querySelector('#a-other').value;
       var title = v.querySelector('#a-title').value.trim(); if(!title) return;
-      await ML.addTask({ title: title, account_id: acc, vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : (other || 'clientes'), kind: v.querySelector('#a-kind').value, owner: v.querySelector('#a-owner').value, due: v.querySelector('#a-due').value });
-      ML.toast('Tarea añadida'); ML.rerender();
-      var t = document.getElementById('a-title'); if(t) t.focus();
+      var t = await ML.addTask({ title: title, account_id: acc, vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : (other || 'clientes'), kind: 'otro', owner: v.querySelector('#a-owner').value, due: v.querySelector('#a-due').value });
+      if(t) ML.toast('Tarea ' + ML.code(t) + ' añadida'); ML.rerender();
+      var ti = document.getElementById('a-title'); if(ti) ti.focus();
     });
     v.querySelectorAll('[data-q]').forEach(function(b){ b.onclick = function(){ ui.quick = b.dataset.q; ML.rerender(); }; });
     v.querySelectorAll('[data-msb]').forEach(function(b){ b.onclick = function(e){ e.stopPropagation(); ui.msOpen = ui.msOpen === b.dataset.msb ? null : b.dataset.msb; ML.rerender(); }; });
@@ -259,6 +344,8 @@
     qi.addEventListener('input', function(){ ui.f.q = qi.value; var pos = qi.selectionStart; ML.rerender(); var n = document.querySelector('[data-flt=q]'); n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} });
     v.querySelector('#grp').onchange = function(e){ ui.group = e.target.value; ML.rerender(); };
     v.querySelector('#clr').onclick = function(){ ui.f = { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }; ui.quick = 'abiertas'; ui.group = ''; ui.msOpen = null; ML.rerender(); };
+    v.querySelector('#exp-all').onclick = function(){ ui.collapsed = {}; ML.rerender(); };
+    v.querySelector('#col-all').onclick = function(){ ML.topTasks().forEach(function(t){ if(ML.childrenOf(t.id).length) ui.collapsed[t.id] = true; }); ML.rerender(); };
     v.querySelector('#exp').onclick = exportCsv;
     var impf = v.querySelector('#impf');
     v.querySelector('#imp').onclick = function(){ impf.click(); };
@@ -269,12 +356,13 @@
       impf.value = '';
     };
     v.querySelectorAll('th[data-sort]').forEach(function(h){ h.onclick = function(){ var k = h.dataset.sort; if(ui.sort === k) ui.dir = -ui.dir; else { ui.sort = k; ui.dir = 1; } ML.rerender(); }; });
-    v.querySelector('tbody').addEventListener('change', async function(e){
+    var tb = v.querySelector('tbody');
+    tb.addEventListener('change', async function(e){
       var el = e.target, tr = el.closest('tr'), id = tr && +tr.dataset.id, f = el.dataset.f;
       if(!id || !f) return;
+      if(f === 'done' || f === 'status'){ await setStatus(id, f === 'done' ? (el.checked ? 'hecha' : 'pendiente') : el.value); ML.rerender(); return; }
       var patch = {};
-      if(f === 'done') patch.status = el.checked ? 'hecha' : 'pendiente';
-      else if(f === 'account_id' || f === 'vp'){
+      if(f === 'account_id' || f === 'vp'){
         patch[f] = el.value || null;
         var t = ML.task(id), acc = f === 'account_id' ? el.value : t.account_id, vp = f === 'vp' ? el.value : t.vp;
         if(t.pilar === 'clientes' || t.pilar === 'vp') patch.pilar = acc ? 'clientes' : vp ? 'vp' : 'clientes';
@@ -286,10 +374,27 @@
       else patch[f] = el.value;
       await ML.updateTask(id, patch); ML.rerender();
     });
-    v.querySelector('tbody').addEventListener('click', async function(e){
+    tb.addEventListener('submit', async function(e){
+      var f = e.target; if(!f.dataset.addsub) return; e.preventDefault();
+      var pid = +f.dataset.addsub, fd = new FormData(f), title = String(fd.get('title') || '').trim(); if(!title) return;
+      var s = await ML.addSubtask(pid, { title: title, kind: fd.get('kind'), owner: fd.get('owner'), due: fd.get('due') });
+      if(s) ML.toast('Subtarea ' + ML.code(s) + ' añadida'); ML.rerender();
+      var inp = document.querySelector('form[data-addsub="' + pid + '"] input[name=title]'); if(inp) inp.focus();
+    });
+    tb.addEventListener('click', async function(e){
       var b = e.target.closest('[data-a]'); if(!b) return;
-      var id = +b.closest('tr').dataset.id;
-      if(b.dataset.a === 'del' && confirm('¿Eliminar esta tarea? No se puede deshacer.')){ await ML.deleteTask(id); ML.toast('Tarea eliminada'); ML.rerender(); }
+      var tr = b.closest('tr'), id = +(tr.dataset.id || tr.dataset.parent), a = b.dataset.a, t = ML.task(id);
+      if(a === 'toggle'){ ui.collapsed[id] = !ui.collapsed[id]; ML.rerender(); }
+      else if(a === 'addsub'){ ui.addSub = ui.addSub === id ? null : id; ui.collapsed[id] = false; ML.rerender(); var i2 = document.querySelector('form[data-addsub] input[name=title]'); if(i2) i2.focus(); }
+      else if(a === 'cancelsub'){ ui.addSub = null; ML.rerender(); }
+      else if(a === 'tosub' || a === 'move'){ openParentPicker(id); }
+      else if(a === 'promote'){
+        if(confirm('¿Convertir la subtarea ' + ML.code(t) + ' en una tarea?\n\nHeredará la cuenta, VP y pilar de su tarea actual.')){ var err = await ML.promote(id); if(err) ML.toast(err, true); else ML.toast('Ahora es la tarea ' + ML.code(ML.task(id))); ML.rerender(); }
+      }
+      else if(a === 'del'){
+        var nk = ML.childrenOf(id).length;
+        if(confirm('¿Eliminar ' + (ML.isSub(t) ? 'la subtarea ' : 'la tarea ') + ML.code(t) + '?' + (nk ? '\n\nSe eliminarán también sus ' + nk + ' subtarea' + (nk === 1 ? '' : 's') + '.' : '') + '\nNo se puede deshacer.')){ await ML.deleteTask(id); ML.toast('Eliminada'); ML.rerender(); }
+      }
     });
   }
 
@@ -302,7 +407,7 @@
         return ML.s.stages.some(function(s){ return s.account_id === a.id && (!f.vp || s.vp === f.vp) && (f.stage ? s.stage === f.stage : s.stage !== 'no_aplica'); });
       }
       return true; });
-    var opn = {}; openTasks().forEach(function(t){ if(t.account_id) opn[t.account_id] = (opn[t.account_id] || 0) + 1; });
+    var opn = {}; openTasks().filter(function(t){ return !t.parent_id; }).forEach(function(t){ if(t.account_id) opn[t.account_id] = (opn[t.account_id] || 0) + 1; });
     var head = '<div class="filters"><select id="af-am">' + peopleOpts(f.am, 'Todos los AM') + '</select><input id="af-q" placeholder="Buscar cuenta…" value="' + esc(f.q) + '">' +
       '<select id="af-vp">' + vpOpts(f.vp, 'Todas las VP') + '</select><select id="af-st">' + opts(ML.STAGES, f.stage, 'Todas las etapas') + '</select><label class="muted"><input type="checkbox" id="af-inact"' + (f.showInactive ? ' checked' : '') + '> Ver inactivas</label><button class="btn sm" id="af-clr">Limpiar</button>' +
       '<span class="muted">' + list.length + ' cuentas</span><span style="flex:1"></span>' +
@@ -389,7 +494,6 @@
           '<td><input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
           '<td><select data-p="account_id">' + accOpts(d.account_id, '—') + '</select></td>' +
           '<td><select data-p="vp">' + vpOpts(d.vp, '—') + '</select></td>' +
-          '<td><select data-p="kind">' + opts(ML.KINDS, d.kind) + '</select></td>' +
           '<td><select data-p="owner">' + peopleOpts(d.owner, '—') + '</select></td>' +
           '<td><input type="date" data-p="due" value="' + esc(d.due) + '"></td>' +
           '<td><select data-p="priority">' + opts(ML.PRIOS, d.priority) + '</select></td>' +
@@ -399,8 +503,8 @@
       m.innerHTML = '<div class="box wide"><h2>Vista previa de la importación</h2>' +
         '<p class="muted" style="margin-top:0">Edita lo que quieras, desmarca o quita lo que no te sirva. No se guarda nada hasta pulsar «Importar». ' + (dups ? '<b>' + dups + ' parecen duplicadas</b> y vienen desmarcadas.' : '') + '</p>' +
         '<div class="filters"><button class="btn sm" id="pv-all">Marcar todas</button><button class="btn sm" id="pv-none">Desmarcar todas</button><span class="muted">' + inc + ' de ' + drafts.length + ' seleccionadas</span></div>' +
-        '<div class="tablewrap" style="max-height:55vh;overflow:auto"><table class="pv"><colgroup><col style="width:3%"><col style="width:25%"><col style="width:11%"><col style="width:10%"><col style="width:8%"><col style="width:11%"><col style="width:12%"><col style="width:6%"><col style="width:12%"><col style="width:2%"></colgroup><thead><tr><th></th><th>Tarea</th><th>Cuenta</th><th>VP</th><th>Tipo</th><th>Responsable</th><th>Fecha límite</th><th>Prior.</th><th>Comentarios</th><th></th></tr></thead><tbody>' +
-        (rows || '<tr><td colspan="10" class="empty">No queda ninguna tarea.</td></tr>') + '</tbody></table></div>' +
+        '<div class="tablewrap" style="max-height:55vh;overflow:auto"><table class="pv"><colgroup><col style="width:3%"><col style="width:29%"><col style="width:12%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:7%"><col style="width:13%"><col style="width:2%"></colgroup><thead><tr><th></th><th>Tarea</th><th>Cuenta</th><th>VP</th><th>Responsable</th><th>Fecha límite</th><th>Prior.</th><th>Comentarios</th><th></th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="9" class="empty">No queda ninguna tarea.</td></tr>') + '</tbody></table></div>' +
         '<p style="text-align:right;margin-bottom:0"><button class="btn" id="pv-x">Cancelar</button> <button class="btn primary" id="pv-go"' + (inc ? '' : ' disabled') + '>Importar ' + inc + ' tarea' + (inc === 1 ? '' : 's') + '</button></p></div>';
       $('pv-x').onclick = closeModal;
       $('pv-all').onclick = function(){ drafts.forEach(function(d){ d.include = true; }); paint(); };
@@ -429,12 +533,12 @@
   // ======================= CONFIGURACIÓN =======================
   function sortSel(kind){ var m = ML.sortMode(kind); return '<select data-sortmode="' + kind + '" title="Orden de la lista y de los desplegables"><option value="alpha"' + (m === 'alpha' ? ' selected' : '') + '>Orden: alfabético</option><option value="manual"' + (m === 'manual' ? ' selected' : '') + '>Orden: manual</option></select>'; }
   function cfgList(kind){
-    var rows = ML.rows[kind], sys = ML.SYSTEM[kind], hasColor = kind === 'stage' || kind === 'pilar', alpha = ML.sortMode(kind) === 'alpha';
+    var rows = ML.rows[kind], sys = ML.SYSTEM[kind], hasColor = kind === 'stage' || kind === 'pilar' || kind === 'status' || kind === 'priority', alpha = ML.sortMode(kind) === 'alpha';
     var body = rows.map(function(r, i){
       var isSys = sys.indexOf(r.key) >= 0, used = ML.listUsed(kind, r.key);
       return '<tr data-kind="' + kind + '" data-key="' + esc(r.key) + '">' +
         '<td class="editable"><input data-lf="label" value="' + esc(r.label) + '" style="width:100%"></td>' +
-        (hasColor ? '<td class="editable"><input type="color" data-lf="color" value="' + (kind === 'pilar' ? ML.pilarColor(r.key) : (r.color || '#888888')) + '" title="Color">' + (r.color ? ' <button class="btn sm" data-la="uncolor" title="Color por defecto">↺</button>' : '') + '</td>' : '') +
+        (hasColor ? '<td class="editable"><input type="color" data-lf="color" value="' + (kind === 'stage' ? (r.color || '#888888') : (ML.listColor(kind, r.key) || '#888888')) + '" title="Color">' + (r.color ? ' <button class="btn sm" data-la="uncolor" title="Color por defecto">↺</button>' : '') + '</td>' : '') +
         '<td class="muted" title="Clave interna (no cambia al renombrar)">' + esc(r.key) + (isSys ? ' 🔒' : '') + '</td><td class="muted">' + used + '</td>' +
         '<td class="editable"><input type="checkbox" data-lf="active" ' + (r.active || isSys ? 'checked' : '') + (isSys ? ' disabled' : '') + ' title="Activo"></td>' +
         '<td class="act editable">' + (alpha ? '' : '<button class="btn sm" data-la="up"' + (i === 0 ? ' disabled' : '') + '>↑</button> <button class="btn sm" data-la="down"' + (i === rows.length - 1 ? ' disabled' : '') + '>↓</button> ') +
@@ -540,11 +644,11 @@
   // Recordatorio al abrir: vencidas y próximas (una vez por sesión del navegador)
   ML.showReminders = function(){
     try{ if(sessionStorage.getItem('ml_rem') === ML.today()) return; }catch(e){}
-    var l = openTasks().filter(function(t){ var u = ML.urgency(t); return u === 'over' || u === 'soon' || u === 'week'; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; });
+    var l = openLeaves().filter(function(t){ var u = ML.urgency(t); return u === 'over' || u === 'soon' || u === 'week'; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; });
     if(!l.length) return;
     var m = $('modal');
     m.innerHTML = '<div class="box"><h2>Recordatorio · ' + l.length + ' tarea' + (l.length === 1 ? '' : 's') + ' requieren atención</h2><div class="list">' +
-      l.slice(0, 20).map(function(t){ var u = ML.urgency(t); return '<div class="it"><span class="t">' + esc(t.title) + '<br><span class="m">' + esc([accName(t.account_id), t.owner].filter(Boolean).join(' · ')) + '</span></span><span class="pill ' + u + '">' + ML.fmt(t.due) + ' · ' + ML.dueText(t) + '</span></div>'; }).join('') +
+      l.slice(0, 20).map(function(t){ var u = ML.urgency(t); return '<div class="it"><span class="t"><span class="tid">' + ML.code(t) + '</span> ' + esc(t.title) + '<br><span class="m">' + esc([accName(ML.eff(t).account_id), t.owner].filter(Boolean).join(' · ')) + '</span></span><span class="pill ' + u + '">' + ML.fmt(t.due) + ' · ' + ML.dueText(t) + '</span></div>'; }).join('') +
       (l.length > 20 ? '<p class="muted">… y ' + (l.length - 20) + ' más</p>' : '') + '</div><p style="text-align:right"><button class="btn" id="rem-x">Cerrar</button> <button class="btn primary" id="rem-go">Ver tareas</button></p></div>';
     m.hidden = false;
     var close = function(){ m.hidden = true; try{ sessionStorage.setItem('ml_rem', ML.today()); }catch(e){} };

@@ -1,52 +1,70 @@
-# Market Leader Plan — app de seguimiento
+# Market Leader · Seguimiento v2
 
-App web estática (HTML + JS, sin compilar) con tres pestañas: **Listado de tareas**, **Diagrama de Gantt** y **Seguimiento VP por AM**.
-Los datos viven en **Supabase** (Postgres + login + tiempo real); el código vive en **GitHub**.
+App estática (sin compilar) + Supabase. Pestañas: **Cuadro de mando**, **Tareas**, **Cuentas**.
+Una tarea = una fecha límite. Los recordatorios salen **dentro de la app** (aviso al abrir + contadores en la cabecera + colores por urgencia).
+Etapas por cuenta y VP: Sin contacto → **Solicitar fecha de reunión** → Reunión → VP presentada → Propuesta → Ganada / Perdida / Aparcada / No aplica.
 
-> Estado: probada con un Supabase simulado (login, lectura, escritura, borrado, solo lectura). **No se ha probado contra un proyecto Supabase real ni se ha ejecutado el SQL**: haz la prueba de la sección 5 antes de usarla con datos reales.
+## Pasos (≈15 min)
 
-## 1. Crear el proyecto Supabase
-1. Crea un proyecto en supabase.com (región UE, p. ej. Frankfurt, si hay requisitos de RGPD).
-2. **Authentication → Sign In / Providers → Email**: desactiva el registro público de usuarios (para que solo entre quien tú invites).
-3. **SQL Editor**: ejecuta `supabase/schema.sql` y después `supabase/seed.sql`.
-4. **Authentication → Users**: crea tu usuario (y los de los AMs) con correo y contraseña. Hazlo *después* del paso 3 para que se cree su perfil automáticamente.
-5. Súbete a administrador (SQL Editor):
-   ```sql
-   update public.profiles set role = 'admin' where email = 'tu-correo@...';
-   ```
-   Roles: `admin` y `editor` leen y escriben; `viewer` (por defecto) solo lee.
+### 1. Supabase: ejecutar la migración
+1. Supabase → tu proyecto → **SQL Editor → New query**.
+2. Pega **todo** el contenido de `supabase/migration_v2.sql` → **Run**.
+3. Al final devuelve una fila con recuentos. Esperado: `cuentas` = 34, `etapas` = 136, `tareas` ≈ 21 (las 3 tareas por cuenta del modelo antiguo que tenían fecha/estado), `personas` ≈ 12.
+4. Si ves un error de "function has_profile() does not exist", el esquema v1 no se ejecutó en este proyecto: ejecuta antes `supabase/schema.sql` de la v1.
+5. Es seguro relanzarla: si `ml_accounts` ya tiene datos, no duplica. Las tablas antiguas (`accounts`, `plan`, `tasks`) NO se tocan: quedan de copia de seguridad.
+6. Opcional: **Table Editor** → comprueba que existen `ml_people`, `ml_accounts`, `ml_stages`, `ml_tasks`.
 
-## 2. Configurar la app
-En **Project Settings → API** copia la *Project URL* y la clave *anon / publishable* a `config.js`.
-La clave anon es pública por diseño; la seguridad la dan el login y las políticas RLS. **Nunca pongas la clave `service_role`.**
+### 2. GitHub: sustituir los archivos
+Repositorio `Market-Leader` → en la web de GitHub:
+1. **Borrar** (abrir cada archivo → `…` → Delete file → Commit): `js/tasks.js`, `js/dashboard.js`, `styles.css`, `app.css` (los de la raíz). `js/app.js` no hace falta borrarlo: el nuevo lo sobrescribe.
+2. **NO borres ni sobrescribas tu `config.js`** (tiene tus claves). `config.example.js` es solo una plantilla.
+3. **Subir** (Add file → Upload files, arrastrando las carpetas conservando su estructura):
+   - `index.html` (sobrescribe el anterior)
+   - carpeta `css/` (contiene `app.css`)
+   - carpeta `js/` (contiene `store.js`, `views.js`, `app.js`)
+   - carpeta `supabase/` (opcional, solo documentación: `migration_v2.sql`)
+   - `README.md`
+4. Commit. GitHub Pages tarda 1–2 min en publicar. Abre la página con **Ctrl+F5** (para saltarte la caché).
 
-## 3. Probar en local
-```bash
-python3 -m http.server 8000     # dentro de esta carpeta
-# abre http://localhost:8000
+Estructura final esperada:
+```
+index.html  config.js  README.md
+css/app.css
+js/store.js  js/views.js  js/app.js
+supabase/migration_v2.sql
 ```
 
-## 4. GitHub y publicación
-```bash
-git init && git add . && git commit -m "Market Leader Plan"
-git branch -M main
-git remote add origin git@github.com:TU-USUARIO/market-leader-plan.git   # repo PRIVADO
-git push -u origin main
-```
-Publicación (sin paso de build, directorio raíz): **Vercel** o **Netlify** importando el repo, o GitHub Pages. Con repo privado, GitHub Pages puede exigir un plan de pago (verifícalo en tu cuenta).
+### 3. Comprobar
+- Entras con tu usuario (rol admin). Cuadro de mando con datos; pestaña Cuentas con las 34 cuentas y su etapa en Core/AI.
+- Si sale "No se pudieron leer los datos": falta ejecutar el paso 1. Pantalla en blanco: abre la consola (F12 → Console) y mira si hay un 404 en `js/…` o `css/…`.
 
-## 5. Prueba mínima con datos reales
-1. Entra con tu usuario: deben verse 34 cuentas y la tarea semanal.
-2. Edita una nota o un estado, recarga: debe seguir ahí.
-3. Abre la app en otra ventana: el cambio debe llegar solo (tiempo real).
-4. Entra con un usuario `viewer`: debe verse en solo lectura y no guardar.
+### 4. Traer las tareas antiguas del artefacto (opcional)
+En el artefacto del Market Leader, pestaña de tareas → **⬇ Exportar histórico** (JSON). En la app → Tareas → **⬆ Importar histórico**. Mapeo: fecha fin → fecha límite (se descarta la fecha inicio); *retrasada* → en curso (se calcula sola por fecha); las tareas de cuenta se vinculan por nombre de cuenta; si el responsable no existe en la lista, se anota en la nota; la tarea recurrente semanal se importa como una sola con la próxima fecha (repetir a mano).
 
-## 6. Pasar las tareas del artefacto
-En el artefacto, pestaña *Listado de tareas* → **⬇ Exportar histórico**. En la app → **⬆ Importar histórico** (reemplaza las tareas actuales).
+## Actualización v3 (comentarios, eliminar, Configuración, KPI por cuenta)
+1. **Supabase → SQL Editor → New query:** pega y ejecuta `supabase/migration_v3.sql` (después de la v2). Debe devolver `valores_de_lista` = 27 y `checks_restantes` = 0. Es relanzable y no toca datos.
+2. **GitHub → sobrescribe:** `index.html`, `css/app.css`, `js/store.js`, `js/views.js` (no toques `config.js`). Opcional: sube también `supabase/migration_v3.sql`.
+3. Recarga con Ctrl+F5. Nueva pestaña **Configuración**. Si no has ejecutado la migración, la app sigue funcionando con los valores por defecto y la pestaña te avisa.
 
-## Estructura de datos
-Tres tablas con una fila por documento (`id`, `data jsonb`): `accounts` (cuentas, AM, ola de IA), `plan` (estado, fecha y nota de cada tarea por cuenta y VP) y `tasks` (listado de tareas). Es la forma más directa de portar el artefacto; si más adelante necesitas informes, se puede normalizar a columnas.
+## Logo y favicon
+Archivos nuevos: carpeta `img/` (favicon.svg, favicon-16/32/48.png, apple-touch-icon.png, icon-192/512.png, logo.svg, logo.png) y `favicon.ico` en la raíz. `index.html` ya los enlaza. Súbelos a GitHub conservando la carpeta `img/`.
 
-## Seguridad y datos
-- Los datos son comerciales de Inetum: confirma con IT/seguridad que pueden alojarse en tu GitHub y tu Supabase antes de cargar datos reales. Repo privado.
-- `supabase-js` se carga desde jsDelivr con la versión fijada (`2.45.4`): verifica que sigue disponible y actualízala si procede.
+## Importar tareas (con vista previa)
+Tareas → **Pegar tareas** (pega el JSON del agente, vale con el bloque de código completo) o **Importar archivo JSON**. Se abre una vista previa donde puedes editar, desmarcar o quitar cada tarea antes de guardar. Las que parecen duplicadas (mismo título) vienen desmarcadas.
+
+## Limitaciones conocidas
+- Sin Gantt ni calendario (decidido; el calendario queda para una fase posterior).
+- Recordatorios solo con la app abierta: GitHub Pages no puede avisar con la app cerrada.
+- Sin tiempo real: se recarga al volver a la pestaña (>1 min). Pensado para un único editor.
+- No hay tareas recurrentes.
+- Mantenimiento: listas de estados/etapas/VP en `js/store.js` (arriba del todo); si las cambias, ajusta también los `check` del SQL.
+- Seguridad: nunca pongas la clave `service_role` en config.js; repo privado si es posible; confirma con IT de Inetum el alojamiento de datos de clientes en GitHub/Supabase personales.
+
+## Subtareas (v4)
+1. Copia de seguridad: Supabase > Table Editor > `ml_tasks` > Export CSV.
+2. Ejecuta `supabase/migration_v4.sql` en el SQL Editor (todo lo existente pasa a ser tarea; su código es su número actual).
+3. Sube a GitHub `js/store.js`, `js/views.js`, `css/app.css` (y este README). No toques tu `config.js`.
+- Códigos: tarea `01`, subtarea `01-01`, `01-02`… Los números de subtarea no se reutilizan.
+- Botones de fila: ＋ añadir subtarea · ↳ convertir en subtarea (pregunta de qué tarea cuelga) · ⇄ cambiar de tarea · ↱ convertir en tarea.
+- Solo un nivel. Una tarea con subtareas no puede convertirse en subtarea.
+- KPIs, «Carga por responsable» y «Vencen pronto» cuentan subtareas y tareas sin subtareas; embudo y «Tareas por cuenta», tareas.

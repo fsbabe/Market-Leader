@@ -149,3 +149,19 @@ table.pv td input[data-p=note]{width:100%;min-width:0}
 table.pv td select,table.pv td input[type=date]{width:100%;min-width:0}
 tr.pv-off td{opacity:.5}
 .pv-warn{font-size:11.5px;color:var(--soon);margin-top:2px}
+
+/* subtareas */
+tr.sub td{background:rgba(128,128,128,.06)}
+tr.sub td:nth-child(2){padding-left:26px}
+tr.sub td:first-child{box-shadow:inset 3px 0 var(--line)}
+tr.ctx td:not(.act){opacity:.55}
+td.inh{color:var(--mute);font-size:12.5px}
+.tg{font:inherit;border:0;background:none;cursor:pointer;color:var(--ink);padding:0 4px;font-size:13px}
+.prog{font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:99px;padding:0 7px}
+tr.addsub td{background:var(--bg)}
+tr.addsub input,tr.addsub select{padding:4px 6px}
+/* estados y prioridades en color */
+td select.cpill{appearance:none;-webkit-appearance:none;width:auto;max-width:100%;border:0;border-radius:99px;padding:2px 12px;font-weight:600;font-size:12.5px;cursor:pointer;text-align:center;box-shadow:0 0 0 1px rgba(128,128,128,.35)}
+table.fx td select.cpill{width:auto}
+td select.cpill:hover{filter:brightness(1.08);box-shadow:0 0 0 2px var(--brand)}
+select.cpill option{background:var(--card);color:var(--ink)}

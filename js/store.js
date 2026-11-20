@@ -36,7 +36,14 @@
 
   // Colores de los pilares (editables en Configuración; estos son los valores por defecto)
   ML.PILAR_COLORS = { vp: '#F5F340', partnership: '#92A0CC', marketing: '#DA1984', clientes: '#232D4B' };
-  ML.pilarColor = function(k){ var r = (ML.rows.pilar || []).filter(function(x){ return x.key === k; })[0]; return (r && r.color) || ML.PILAR_COLORS[k] || '#9aa3b5'; };
+  ML.STATUS_COLORS = { pendiente: '#F28C28', en_curso: '#2F7FD1', bloqueada: '#D64545', hecha: '#2E9E5B' };
+  ML.PRIO_COLORS = { alta: '#D64545', media: '#F28C28', baja: '#2E9E5B' };
+  var DEFAULT_COLORS = { pilar: ML.PILAR_COLORS, status: ML.STATUS_COLORS, priority: ML.PRIO_COLORS };
+  // Color de un valor de lista: el elegido en Configuración o, si no hay, el de por defecto
+  ML.listColor = function(kind, k){ var r = (ML.rows[kind] || []).filter(function(x){ return x.key === k; })[0]; return (r && r.color) || (DEFAULT_COLORS[kind] && DEFAULT_COLORS[kind][k]) || ''; };
+  ML.pilarColor = function(k){ return ML.listColor('pilar', k) || '#9aa3b5'; };
+  // Estilo "pastilla" (fondo + texto legible) para un valor de lista
+  ML.pillStyle = function(kind, k){ var c = ML.listColor(kind, k) || '#9aa3b5'; return 'background:' + c + ';color:' + ML.textOn(c); };
   ML.textOn = function(hex){
     var h = String(hex || '').replace('#', ''); if(h.length === 3) h = h.replace(/./g, '$&$&');
     var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
@@ -134,6 +141,7 @@
     var res = await Promise.all([q('ml_people', 'sort'), q('ml_accounts', 'name'), q('ml_stages'), q('ml_tasks', 'id'), q('ml_lists', 'sort')]);
     for(var i = 0; i < 4; i++){ if(res[i].error){ ML.toast('Error al leer datos: ' + res[i].error.message, true); return false; } }
     ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data; ML.resort();
+    ML.hasHier = !ML.s.tasks.length || ('task_no' in ML.s.tasks[0]);
     ML.listsOk = !res[4].error && !!res[4].data && res[4].data.length > 0;
     ML.s.lists = ML.listsOk ? res[4].data : [];
     ML.applyLists(ML.s.lists);
@@ -141,15 +149,78 @@
     return true;
   };
 
+  // ---------- Jerarquía: tarea → subtareas (un solo nivel) ----------
+  // Una fila de ml_tasks es TAREA si parent_id es null y SUBTAREA si no. Código: tarea "01", subtarea "01-01".
+  ML.hasHier = true;   // false si falta ejecutar migration_v4.sql
+  ML.pad = function(n){ n = +n; return (n < 10 ? '0' : '') + n; };
+  ML.isSub = function(t){ return !!(t && t.parent_id); };
+  ML.parentOf = function(t){ return t && t.parent_id ? ML.task(t.parent_id) : null; };
+  ML.childrenOf = function(id){ return ML.s.tasks.filter(function(t){ return t.parent_id === id; }); };
+  ML.topTasks = function(){ return ML.s.tasks.filter(function(t){ return !t.parent_id; }); };
+  ML.code = function(t){
+    if(!t) return '';
+    if(t.parent_id){ var p = ML.task(t.parent_id); return (p ? ML.code(p) : '??') + '-' + ML.pad(t.sub_no || 0); }
+    return ML.pad(t.task_no != null ? t.task_no : t.id);
+  };
+  // Cuenta, VP y pilar de una fila: las subtareas heredan los de su tarea
+  ML.eff = function(t){ var p = ML.parentOf(t); return p || t; };
+  // "Unidades de trabajo": subtareas + tareas que no tienen subtareas (lo que realmente hay que hacer)
+  ML.leaves = function(){
+    var hasKids = {}; ML.s.tasks.forEach(function(t){ if(t.parent_id) hasKids[t.parent_id] = true; });
+    return ML.s.tasks.filter(function(t){ return t.parent_id || !hasKids[t.id]; });
+  };
+  ML.nextTaskNo = function(){ return ML.s.tasks.reduce(function(m, t){ return Math.max(m, t.task_no || 0, ML.hasHier ? 0 : t.id); }, 0) + 1; };
+
   // ---------- Tareas ----------
   ML.addTask = async function(f){
     var row = {
       title: f.title, account_id: f.account_id || null, vp: f.vp || null, pilar: f.pilar || 'clientes', scope_text: f.scope_text || '',
       kind: f.kind || 'otro', owner: f.owner || null, due: f.due || null, status: 'pendiente', priority: f.priority || 'media', note: f.note || '', source: f.source || ''
     };
+    if(ML.hasHier){ row.task_no = ML.nextTaskNo(); row.parent_id = null; }
     var r = await ML.sb.from('ml_tasks').insert(row).select().single();
     if(r.error){ await fail(r.error); return null; }
     ML.s.tasks.push(r.data); return r.data;
+  };
+  ML.addSubtask = async function(parentId, f){
+    var p = ML.task(parentId); if(!p || p.parent_id) return null;
+    var n = (p.sub_counter || 0) + 1;
+    var row = {
+      title: f.title, account_id: null, vp: null, pilar: p.pilar, scope_text: '', kind: f.kind || 'otro', owner: f.owner || null, due: f.due || null,
+      status: 'pendiente', priority: f.priority || 'media', note: f.note || '', source: f.source || '', parent_id: parentId, sub_no: n
+    };
+    var r0 = await ML.sb.from('ml_tasks').update({ sub_counter: n }).eq('id', parentId);
+    if(r0.error){ await fail(r0.error); return null; }
+    p.sub_counter = n;
+    var r = await ML.sb.from('ml_tasks').insert(row).select().single();
+    if(r.error){ await fail(r.error); return null; }
+    ML.s.tasks.push(r.data); return r.data;
+  };
+  // Tarea → subtarea de otra tarea (o mover una subtarea a otra tarea). Devuelve null si va bien, o un texto de error.
+  ML.moveUnder = async function(id, parentId){
+    var t = ML.task(id), p = ML.task(parentId);
+    if(!t || !p) return 'No se encontró la tarea';
+    if(p.parent_id) return 'La tarea de destino ya es una subtarea (solo hay un nivel)';
+    if(p.id === t.id) return 'Una tarea no puede colgar de sí misma';
+    if(ML.childrenOf(t.id).length) return 'Esta tarea tiene subtareas: muévelas o conviértelas en tareas antes (solo hay un nivel)';
+    if(t.parent_id === parentId) return 'Ya cuelga de esa tarea';
+    var n = (p.sub_counter || 0) + 1;
+    var r0 = await ML.sb.from('ml_tasks').update({ sub_counter: n }).eq('id', p.id);
+    if(r0.error){ await fail(r0.error); return 'No se pudo guardar'; }
+    p.sub_counter = n;
+    t.parent_id = parentId; t.sub_no = n;
+    var r = await ML.sb.from('ml_tasks').update({ parent_id: parentId, sub_no: n }).eq('id', id);
+    if(r.error){ await fail(r.error); return 'No se pudo guardar'; }
+    return null;
+  };
+  // Subtarea → tarea: recupera su número de tarea anterior si lo tenía y hereda cuenta, VP y pilar de su tarea padre
+  ML.promote = async function(id){
+    var t = ML.task(id), p = ML.parentOf(t); if(!t || !p) return 'No es una subtarea';
+    var patch = { parent_id: null, task_no: t.task_no != null ? t.task_no : ML.nextTaskNo(), account_id: p.account_id || null, vp: p.vp || null, pilar: p.pilar };
+    Object.keys(patch).forEach(function(k){ t[k] = patch[k]; });
+    var r = await ML.sb.from('ml_tasks').update(patch).eq('id', id);
+    if(r.error){ await fail(r.error); return 'No se pudo guardar'; }
+    return null;
   };
   ML.updateTask = async function(id, patch){
     var t = ML.task(id); if(!t) return false;
@@ -160,7 +231,7 @@
     return true;
   };
   ML.deleteTask = async function(id){
-    ML.s.tasks = ML.s.tasks.filter(function(t){ return t.id !== id; });
+    ML.s.tasks = ML.s.tasks.filter(function(t){ return t.id !== id && t.parent_id !== id; });   // las subtareas se borran en cascada en la BD
     var r = await ML.sb.from('ml_tasks').delete().eq('id', id);
     if(r.error){ await fail(r.error); return false; }
     return true;
@@ -224,7 +295,7 @@
     var rows = ML.rows[kind], base = ML.slug(label).replace(/-/g, '_'), key = base, n = 2;
     while(rows.some(function(r){ return r.key === key; })) key = base + '_' + (n++);
     var sort = Math.max.apply(null, rows.map(function(r){ return r.sort; }).concat([0])) + 1;
-    var row = { kind: kind, key: key, label: label, sort: sort, active: true, color: (kind === 'stage' || kind === 'pilar') ? PALETTE[rows.length % PALETTE.length] : '', system: false };
+    var row = { kind: kind, key: key, label: label, sort: sort, active: true, color: (kind === 'stage' || kind === 'pilar' || kind === 'status' || kind === 'priority') ? PALETTE[rows.length % PALETTE.length] : '', system: false };
     if(!ML.listsOk){ ML.toast('Falta ejecutar migration_v3.sql en Supabase para poder editar las listas', true); return null; }
     var r = await ML.sb.from('ml_lists').insert(row).select().single();
     if(r.error){ await fail(r.error); return null; }
