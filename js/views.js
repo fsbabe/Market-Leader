@@ -493,9 +493,10 @@
       var rows = drafts.map(function(d, i){
         var warn = d.warns.length ? '<div class="pv-warn">⚠ ' + d.warns.map(esc).join(' · ') + '</div>' : '';
         return '<tr data-i="' + i + '"' + (d.include ? '' : ' class="pv-off"') + '><td><input type="checkbox" data-p="include"' + (d.include ? ' checked' : '') + ' title="Incluir"></td>' +
-          '<td><input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
+          '<td>' + (d.parent_id ? '<span class="tid" title="Se importará como subtarea de esta tarea">↳ subtarea de ' + d.parentCode + '</span>' : '') + '<input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
+          (d.parent_id ? '<td class="inh" colspan="2">hereda de la tarea ' + d.parentCode + '</td>' :
           '<td><select data-p="account_id">' + accOpts(d.account_id, '—') + '</select></td>' +
-          '<td><select data-p="vp">' + vpOpts(d.vp, '—') + '</select></td>' +
+          '<td><select data-p="vp">' + vpOpts(d.vp, '—') + '</select></td>') +
           '<td><select data-p="owner">' + peopleOpts(d.owner, '—') + '</select></td>' +
           '<td><input type="date" data-p="due" value="' + esc(d.due) + '"></td>' +
           '<td><select data-p="priority">' + opts(ML.PRIOS, d.priority) + '</select></td>' +

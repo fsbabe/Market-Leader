@@ -399,7 +399,14 @@
         if(o.account && !acc){ note = (note ? note + ' · ' : '') + 'Cuenta no reconocida: ' + o.account; warns.push('Cuenta «' + o.account + '» no reconocida'); }
         var vp = OK_VP.indexOf(o.vp) >= 0 ? o.vp : '';
         if(o.vp && !vp) warns.push('VP «' + o.vp + '» no válida');
-        d = { title: String(o.title).trim(), account_id: acc ? acc.id : '', vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes', scope_text: '',
+        // Subtarea: "parent" = código de una tarea existente ("07" o "#07")
+        var par = null;
+        if(o.parent != null && String(o.parent).trim() !== ''){
+          var pn = parseInt(String(o.parent).replace(/[^\d]/g, ''), 10);
+          par = ML.topTasks().filter(function(x){ return x.task_no === pn; })[0] || null;
+          if(!par) warns.push('Tarea padre «' + o.parent + '» no encontrada: se importará como tarea');
+        }
+        d = { parent_id: par ? par.id : null, parentCode: par ? ML.code(par) : '', title: String(o.title).trim(), account_id: acc ? acc.id : '', vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes', scope_text: '',
               kind: OK_KIND.indexOf(o.kind) >= 0 ? o.kind : 'otro', owner: owner, due: /^\d{4}-\d{2}-\d{2}$/.test(o.due || '') ? o.due : '',
               priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note, source: 'agente', status: 'pendiente', warns: warns };
       } else if(o.text){
@@ -433,6 +440,11 @@
     for(var i = 0; i < drafts.length; i++){
       var d = drafts[i]; if(!d.include || !String(d.title).trim()) continue;
       var pilar = d.account_id ? 'clientes' : d.vp ? 'vp' : (d.pilar || 'clientes');
+      if(d.parent_id && ML.task(d.parent_id)){
+        var sb = await ML.addSubtask(d.parent_id, { title: String(d.title).trim(), kind: d.kind, owner: d.owner || '', due: d.due || null, priority: d.priority, note: d.note || '', source: d.source });
+        if(sb){ if(d.status && d.status !== 'pendiente') await ML.updateTask(sb.id, { status: d.status }); n++; }
+        continue;
+      }
       var added = await ML.addTask({ title: String(d.title).trim(), account_id: d.account_id || null, vp: d.vp || null, pilar: pilar, scope_text: d.scope_text || '',
         kind: d.kind, owner: d.owner || '', due: d.due || null, priority: d.priority, note: d.note || '', source: d.source });
       if(added){ if(d.status && d.status !== 'pendiente') await ML.updateTask(added.id, { status: d.status }); n++; }
