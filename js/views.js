@@ -493,8 +493,8 @@
       var rows = drafts.map(function(d, i){
         var warn = d.warns.length ? '<div class="pv-warn">⚠ ' + d.warns.map(esc).join(' · ') + '</div>' : '';
         return '<tr data-i="' + i + '"' + (d.include ? '' : ' class="pv-off"') + '><td><input type="checkbox" data-p="include"' + (d.include ? ' checked' : '') + ' title="Incluir"></td>' +
-          '<td>' + (d.parent_id ? '<span class="tid" title="Se importará como subtarea de esta tarea">↳ subtarea de ' + d.parentCode + '</span>' : '') + '<input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
-          (d.parent_id ? '<td class="inh" colspan="2">hereda de la tarea ' + d.parentCode + '</td>' :
+          '<td>' + ((d.parent_id || d.parentKey) ? '<span class="tid" title="Se importará como subtarea de esta tarea">↳ subtarea de ' + d.parentCode + '</span>' : '') + '<input class="title" data-p="title" value="' + esc(d.title) + '">' + warn + '</td>' +
+          ((d.parent_id || d.parentKey) ? '<td class="inh" colspan="2">hereda de la tarea ' + d.parentCode + '</td>' :
           '<td><select data-p="account_id">' + accOpts(d.account_id, '—') + '</select></td>' +
           '<td><select data-p="vp">' + vpOpts(d.vp, '—') + '</select></td>') +
           '<td><select data-p="owner">' + peopleOpts(d.owner, '—') + '</select></td>' +
@@ -515,7 +515,7 @@
       $('pv-go').onclick = async function(){
         $('pv-go').disabled = true; $('pv-go').textContent = 'Importando…';
         var n = await ML.commitImport(drafts); closeModal();
-        ML.toast(n + ' tarea' + (n === 1 ? '' : 's') + ' importada' + (n === 1 ? '' : 's'), n === 0); ML.rerender();
+        ML.toast(n + ' elemento' + (n === 1 ? '' : 's') + ' importado' + (n === 1 ? '' : 's') + (ML.lastSkipped ? ' · ' + ML.lastSkipped + ' omitido' + (ML.lastSkipped === 1 ? '' : 's') + ' (sin tarea padre o con error)' : ''), n === 0 || !!ML.lastSkipped); ML.rerender();
       };
       var tb = m.querySelector('tbody');
       tb.addEventListener('change', function(e){

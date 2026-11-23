@@ -388,7 +388,8 @@
     var byName = {}, people = {}, titles = {}, drafts = [], seen = {};
     ML.s.accounts.forEach(function(a){ byName[a.name.toLowerCase()] = a; });
     ML.s.people.forEach(function(p){ people[p.name] = true; });
-    ML.s.tasks.forEach(function(t){ titles[String(t.title).trim().toLowerCase()] = true; });
+    ML.s.tasks.forEach(function(t){ titles[(t.parent_id ? t.parent_id + '|' : '') + String(t.title).trim().toLowerCase()] = true; });
+    var keys = {}; arr.forEach(function(o){ if(o && o.key) keys[String(o.key)] = o; });   // "key": identificador para que otras filas del mismo archivo cuelguen de esta
     arr.forEach(function(o){
       if(!o) return;
       var d;
@@ -400,13 +401,14 @@
         var vp = OK_VP.indexOf(o.vp) >= 0 ? o.vp : '';
         if(o.vp && !vp) warns.push('VP «' + o.vp + '» no válida');
         // Subtarea: "parent" = código de una tarea existente ("07" o "#07")
-        var par = null;
-        if(o.parent != null && String(o.parent).trim() !== ''){
+        var par = null, pkey = '';
+        if(o.parent != null && keys[String(o.parent)]){ pkey = String(o.parent); }
+        else if(o.parent != null && String(o.parent).trim() !== ''){
           var pn = parseInt(String(o.parent).replace(/[^\d]/g, ''), 10);
           par = ML.topTasks().filter(function(x){ return x.task_no === pn; })[0] || null;
           if(!par) warns.push('Tarea padre «' + o.parent + '» no encontrada: se importará como tarea');
         }
-        d = { parent_id: par ? par.id : null, parentCode: par ? ML.code(par) : '', title: String(o.title).trim(), account_id: acc ? acc.id : '', vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes', scope_text: '',
+        d = { key: o.key ? String(o.key) : '', parentKey: pkey, parent_id: par ? par.id : null, parentCode: par ? ML.code(par) : (pkey ? '«' + String(keys[pkey].title).slice(0, 60) + '»' : ''), title: String(o.title).trim(), account_id: acc ? acc.id : '', vp: vp, pilar: acc ? 'clientes' : vp ? 'vp' : 'clientes', scope_text: '',
               kind: OK_KIND.indexOf(o.kind) >= 0 ? o.kind : 'otro', owner: owner, due: /^\d{4}-\d{2}-\d{2}$/.test(o.due || '') ? o.due : '',
               priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note, source: 'agente', status: 'pendiente', warns: warns };
       } else if(o.text){
@@ -425,7 +427,7 @@
               priority: OK_PRIO.indexOf(o.priority) >= 0 ? o.priority : 'media', note: note2, source: 'importado', status: OLD_STATUS[o.status] || 'pendiente', warns: w2 };
       } else return;
       if(!d.title) return;
-      var key = d.title.toLowerCase();
+      var key = (d.parent_id ? d.parent_id + '|' : d.parentKey ? 'k:' + d.parentKey + '|' : '') + d.title.toLowerCase();
       d.dup = !!titles[key] || !!seen[key];
       if(d.dup) d.warns.unshift(titles[key] ? 'Ya existe una tarea con este título' : 'Título repetido en el archivo');
       seen[key] = true;
@@ -436,18 +438,22 @@
   };
   // Paso 2: guarda los borradores marcados (con los cambios que hayas hecho en la vista previa)
   ML.commitImport = async function(drafts){
-    var n = 0;
+    var n = 0, ids = {}; ML.lastSkipped = 0;
     for(var i = 0; i < drafts.length; i++){
       var d = drafts[i]; if(!d.include || !String(d.title).trim()) continue;
+      if(d.parentKey && !d.parent_id){                       // cuelga de una tarea del mismo archivo
+        if(!ids[d.parentKey]){ ML.lastSkipped++; continue; }  // su tarea padre no se importó
+        d = Object.assign({}, d, { parent_id: ids[d.parentKey] });
+      }
       var pilar = d.account_id ? 'clientes' : d.vp ? 'vp' : (d.pilar || 'clientes');
       if(d.parent_id && ML.task(d.parent_id)){
         var sb = await ML.addSubtask(d.parent_id, { title: String(d.title).trim(), kind: d.kind, owner: d.owner || '', due: d.due || null, priority: d.priority, note: d.note || '', source: d.source });
-        if(sb){ if(d.status && d.status !== 'pendiente') await ML.updateTask(sb.id, { status: d.status }); n++; }
+        if(sb){ if(d.status && d.status !== 'pendiente') await ML.updateTask(sb.id, { status: d.status }); n++; } else ML.lastSkipped++;
         continue;
       }
       var added = await ML.addTask({ title: String(d.title).trim(), account_id: d.account_id || null, vp: d.vp || null, pilar: pilar, scope_text: d.scope_text || '',
         kind: d.kind, owner: d.owner || '', due: d.due || null, priority: d.priority, note: d.note || '', source: d.source });
-      if(added){ if(d.status && d.status !== 'pendiente') await ML.updateTask(added.id, { status: d.status }); n++; }
+      if(added){ if(d.key) ids[d.key] = added.id; if(d.status && d.status !== 'pendiente') await ML.updateTask(added.id, { status: d.status }); n++; }
     }
     return n;
   };
