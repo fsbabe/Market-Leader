@@ -18,7 +18,7 @@
   function stStyle(k, extra){ var c = ML.stageColor(k); return c ? ' style="background:' + c + (extra || '') + '"' : (extra ? ' style="' + extra.replace(/^;/, '') + '"' : ''); }
   // ---- Columnas redimensionables (anchos en %, recordados en el navegador) ----
   var TASK_COLS = [3, 25, 11, 9, 7, 10, 11, 9, 7, 8];
-  function accCols(){ var n = ML.VPS.length, rest = 62, each = Math.floor(rest / n * 100) / 100, a = [14, 12]; for(var i = 0; i < n; i++) a.push(each); a.push(8, 4); var s = a.reduce(function(x, y){ return x + y; }, 0); a[2] = Math.round((a[2] + 100 - s) * 100) / 100; return a; }
+  function accCols(){ var G = ML.hasGeo, n = ML.VPS.length, rest = G ? 52 : 62, each = Math.floor(rest / n * 100) / 100, a = G ? [14, 12, 10] : [14, 12]; for(var i = 0; i < n; i++) a.push(each); a.push(8, 4); var s = a.reduce(function(x, y){ return x + y; }, 0); var k = G ? 3 : 2; a[k] = Math.round((a[k] + 100 - s) * 100) / 100; return a; }
   function loadW(key, def){ try{ var a = JSON.parse(localStorage.getItem('ml_cols_' + key)); if(Array.isArray(a) && a.length === def.length && Math.abs(a.reduce(function(x, y){ return x + y; }, 0) - 100) < 1) return a; }catch(e){} return def; }
   function colgroup(key, def){ return '<colgroup>' + loadW(key, def).map(function(w){ return '<col style="width:' + w + '%">'; }).join('') + '</colgroup>'; }
   function makeResizable(table){
@@ -155,7 +155,8 @@
   function passRow(t){
     var f = ML.ui.f, q = f.q.trim().toLowerCase(), e = ML.eff(t);
     if(!passQuick(t, ML.ui.quick)) return false;
-    if(f.account.length && f.account.indexOf(e.account_id) < 0) return false;
+    if(f.account.length && f.account.indexOf(e.account_id || '__none') < 0) return false;
+    if(f.geo && f.geo.length){ var ac = ML.account(e.account_id); if(!ML.geoMatch(f.geo, ac && ac.geo)) return false; }
     if(f.owner.length && f.owner.indexOf(t.owner || '__none') < 0) return false;
     if(f.vp.length && f.vp.indexOf(e.vp) < 0) return false;
     if(f.pilar.length && f.pilar.indexOf(e.pilar) < 0) return false;
@@ -231,6 +232,7 @@
       '<button class="btn sm primary" type="submit">Añadir subtarea</button><button class="btn sm" type="button" data-a="cancelsub">Cancelar</button></form></td></tr>';
   }
   function tasksView(){
+    ML.ui.f.geo = ML.ui.f.geo || [];
     var f = ML.ui.f, nodes = tree(), nsub = nodes.reduce(function(m, n){ return m + n.kids.length; }, 0);
     var th = function(k, l){ return '<th class="s" data-sort="' + k + '">' + l + (ML.ui.sort === k ? (ML.ui.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>'; };
     var warn = ML.hasHier ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:12px"><b>Subtareas desactivadas.</b> Ejecuta <code>supabase/migration_v4.sql</code> en Supabase y recarga.</div>';
@@ -244,7 +246,8 @@
       '<button class="btn primary" type="submit">Añadir</button></form>';
     var chips = '<div class="chips">' + QUICK.map(function(q){ return '<button data-q="' + q[0] + '" class="' + (ML.ui.quick === q[0] ? 'on' : '') + '">' + q[1] + '</button>'; }).join(' ') + '</div>';
     var fl = '<div class="filters">' + chips +
-      ms('account', 'Todas las cuentas', ML.s.accounts.map(function(a){ return [a.id, a.name]; })) +
+      ms('account', 'Todas las cuentas', [['__none', '(sin cuenta)']].concat(ML.s.accounts.map(function(a){ return [a.id, a.name]; }))) +
+      (ML.hasGeo ? ms('geo', 'Todas las geografías', ML.geoItems()) : '') +
       ms('owner', 'Todos los responsables', [['__none', '(sin responsable)']].concat(ML.s.people.map(function(p){ return [p.name, p.name]; }))) +
       ms('vp', 'Todas las VP', ML.VPS.map(function(v){ return [v.k, v.label]; })) +
       ms('pilar', 'Todos los pilares', ML.PILARES) +
@@ -343,7 +346,7 @@
     var qi = v.querySelector('[data-flt=q]');
     qi.addEventListener('input', function(){ ui.f.q = qi.value; var pos = qi.selectionStart; ML.rerender(); var n = document.querySelector('[data-flt=q]'); n.focus(); try{ n.setSelectionRange(pos, pos); }catch(e){} });
     v.querySelector('#grp').onchange = function(e){ ui.group = e.target.value; ML.rerender(); };
-    v.querySelector('#clr').onclick = function(){ ui.f = { account: [], owner: [], vp: [], pilar: [], status: [], q: '' }; ui.quick = 'abiertas'; ui.group = ''; ui.msOpen = null; ML.rerender(); };
+    v.querySelector('#clr').onclick = function(){ ui.f = { account: [], owner: [], vp: [], pilar: [], status: [], geo: [], q: '' }; ui.quick = 'abiertas'; ui.group = ''; ui.msOpen = null; ML.rerender(); };
     v.querySelector('#exp-all').onclick = function(){ ui.collapsed = {}; ML.rerender(); };
     v.querySelector('#col-all').onclick = function(){ ML.topTasks().forEach(function(t){ if(ML.childrenOf(t.id).length) ui.collapsed[t.id] = true; }); ML.rerender(); };
     v.querySelector('#exp').onclick = exportCsv;
@@ -402,42 +405,49 @@
 
   // ======================= CUENTAS =======================
   function accountsView(){
-    var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '', vp: '', stage: '' }), q = f.q.trim().toLowerCase();
-    var list = ML.s.accounts.filter(function(a){ if(!a.active && !f.showInactive) return false; if(f.am && a.am !== f.am) return false;
+    var ui = ML.ui, f = ui.accF || (ui.accF = { am: '', q: '', vp: '', stage: '' }), q = f.q.trim().toLowerCase(), G = ML.hasGeo, NC = ML.VPS.length + (G ? 5 : 4);
+    var openCnt = {}; openTasks().forEach(function(t){ var ac = ML.eff(t).account_id; if(ac) openCnt[ac] = (openCnt[ac] || 0) + 1; });
+    var list = ML.s.accounts.filter(function(a){ if(!a.active && !f.showInactive) return false; if(f.am && (f.am === '__none' ? !!a.am : a.am !== f.am)) return false;
+      if(G && f.geo && !ML.geoMatch([f.geo], a.geo)) return false;
+      if(f.empty && openCnt[a.id]) return false;
       if(q && a.name.toLowerCase().indexOf(q) < 0) return false;
       if(f.vp || f.stage){
         return ML.s.stages.some(function(s){ return s.account_id === a.id && (!f.vp || s.vp === f.vp) && (f.stage ? s.stage === f.stage : s.stage !== 'no_aplica'); });
       }
       return true; });
     var opn = {}; openTasks().filter(function(t){ return !t.parent_id; }).forEach(function(t){ if(t.account_id) opn[t.account_id] = (opn[t.account_id] || 0) + 1; });
-    var head = '<div class="filters"><select id="af-am">' + peopleOpts(f.am, 'Todos los AM') + '</select><input id="af-q" placeholder="Buscar cuenta…" value="' + esc(f.q) + '">' +
+    var head = '<div class="filters"><select id="af-am">' + peopleOpts(f.am, 'Todos los AM').replace('</option>', '</option><option value="__none"' + (f.am === '__none' ? ' selected' : '') + '>(sin AM)</option>') + '</select>' +
+      (G ? '<select id="af-geo">' + opts(ML.geoItems(), f.geo, 'Todas las geografías') + '</select>' : '') + '<label class="muted" title="Cuentas sin ninguna tarea abierta"><input type="checkbox" id="af-empty"' + (f.empty ? ' checked' : '') + '> Sin tareas abiertas</label><input id="af-q" placeholder="Buscar cuenta…" value="' + esc(f.q) + '">' +
       '<select id="af-vp">' + vpOpts(f.vp, 'Todas las VP') + '</select><select id="af-st">' + opts(ML.STAGES, f.stage, 'Todas las etapas') + '</select><label class="muted"><input type="checkbox" id="af-inact"' + (f.showInactive ? ' checked' : '') + '> Ver inactivas</label><button class="btn sm" id="af-clr">Limpiar</button>' +
       '<span class="muted">' + list.length + ' cuentas</span><span style="flex:1"></span>' +
       '<button class="btn sm editable" id="add-acc">+ Cuenta</button><button class="btn sm editable" id="add-per">+ Responsable</button></div>';
-    var th = '<thead><tr><th>Cuenta</th><th>AM</th>' + ML.VPS.map(function(v){ return '<th>' + esc(v.label) + '</th>'; }).join('') + '<th>Tareas abiertas</th><th></th></tr></thead>';
+    var th = '<thead><tr><th>Cuenta</th><th>AM</th>' + (G ? '<th>Geografía</th>' : '') + ML.VPS.map(function(v){ return '<th>' + esc(v.label) + '</th>'; }).join('') + '<th>Tareas abiertas</th><th></th></tr></thead>';
     var body = list.map(function(a){
       var tds = ML.VPS.map(function(v){
         var s = ML.stageOf(a.id, v.k), st = s ? s.stage : 'no_aplica';
         return '<td class="editable"><select class="stsel st-' + st + '"' + stStyle(st, ';color:#fff') + ' data-vp="' + v.k + '">' + opts(ML.STAGES, st) + '</select></td>';
       }).join('');
-      var r = '<tr data-acc="' + esc(a.id) + '"' + (a.active ? '' : ' style="opacity:.55"') + '><td><b>' + esc(a.name) + '</b>' + (a.active ? '' : ' <span class="muted">(inactiva)</span>') + '</td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + tds +
+      var r = '<tr data-acc="' + esc(a.id) + '"' + (a.active ? '' : ' style="opacity:.55"') + '><td><b>' + esc(a.name) + '</b>' + (a.active ? '' : ' <span class="muted">(inactiva)</span>') + '</td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + (G ? '<td class="editable"><select data-geo>' + opts(ML.GEOS, a.geo, '—') + '</select></td>' : '') + tds +
         '<td>' + (opn[a.id] ? '<a href="#" data-go="' + esc(a.id) + '">' + opn[a.id] + '</a>' : '<span class="muted">0</span>') + '</td>' +
         '<td class="act"><button class="btn sm" data-detail>' + (ui.openAcc === a.id ? '▲' : '▼') + '</button></td></tr>';
       if(ui.openAcc === a.id){
-        r += '<tr><td colspan="' + (ML.VPS.length + 4) + '" class="note editable"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
+        r += '<tr><td colspan="' + NC + '" class="note editable"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
           ML.VPS.map(function(v){ var s = ML.stageOf(a.id, v.k) || {}; return '<div><b>' + esc(v.label) + '</b><br><textarea data-note="' + v.k + '" placeholder="Notas (caso de uso, motivo de aparcado…)">' + esc(s.note) + '</textarea><br><label class="muted">Revisar el <input type="date" data-rev="' + v.k + '" value="' + esc(s.review_date || '') + '"></label></div>'; }).join('') +
           '<div><b>Cuenta</b><br><input data-accname value="' + esc(a.name) + '" style="width:100%;margin:3px 0"><br><label><input type="checkbox" data-accactive' + (a.active ? ' checked' : '') + '> Activa (visible en listas y desplegables)</label><br><textarea data-accnote placeholder="Nota de la cuenta">' + esc(a.note) + '</textarea><br><button class="btn sm danger" data-delacc>Borrar cuenta</button></div></div></td></tr>';
       }
       return r;
-    }).join('') || '<tr><td colspan="' + (ML.VPS.length + 4) + '" class="empty">Sin cuentas</td></tr>';
-    var cd = accCols(); return head + '<div class="tablewrap"><table class="fx" data-cols="acc' + cd.length + '">' + colgroup('acc' + cd.length, cd) + th + '<tbody>' + body + '</tbody></table></div>';
+    }).join('') || '<tr><td colspan="' + NC + '" class="empty">Sin cuentas</td></tr>';
+    var warnG = ML.hasGeo ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:12px"><b>Geografía desactivada.</b> Ejecuta <code>supabase/migration_v5.sql</code> en Supabase y recarga.</div>';
+    var cd = accCols(); return warnG + head + '<div class="tablewrap"><table class="fx" data-cols="acc' + cd.length + '">' + colgroup('acc' + cd.length, cd) + th + '<tbody>' + body + '</tbody></table></div>';
   }
   function bindAccounts(v){
     var ui = ML.ui;
     v.querySelector('#af-am').onchange = function(e){ ui.accF.am = e.target.value; ML.rerender(); };
     v.querySelector('#af-vp').onchange = function(e){ ui.accF.vp = e.target.value; ML.rerender(); };
+    var ag = v.querySelector('#af-geo'); if(ag) ag.onchange = function(e){ ui.accF.geo = e.target.value; ML.rerender(); };
+    v.querySelector('#af-empty').onchange = function(e){ ui.accF.empty = e.target.checked; ML.rerender(); };
     v.querySelector('#af-st').onchange = function(e){ ui.accF.stage = e.target.value; ML.rerender(); };
-    v.querySelector('#af-clr').onclick = function(){ ui.accF = { am: '', q: '', vp: '', stage: '', showInactive: false }; ML.rerender(); };
+    v.querySelector('#af-clr').onclick = function(){ ui.accF = { am: '', q: '', vp: '', stage: '', geo: '', empty: false, showInactive: false }; ML.rerender(); };
     v.querySelector('#af-inact').onchange = function(e){ ui.accF.showInactive = e.target.checked; ML.rerender(); };
     v.querySelector('#af-q').oninput = function(e){ ui.accF.q = e.target.value; var p = e.target.selectionStart; ML.rerender(); var n = document.getElementById('af-q'); n.focus(); try{ n.setSelectionRange(p, p); }catch(x){} };
     v.querySelector('#add-acc').onclick = async function(){ var n = prompt('Nombre de la cuenta:'); if(n && n.trim()){ var a = await ML.addAccount(n.trim(), ''); if(a){ ui.openAcc = a.id; ML.rerender(); } } };
@@ -449,6 +459,7 @@
       if(!tr){ var prev = el.closest('tr').previousElementSibling; tr = prev; }
       var id = tr && tr.dataset.acc; if(!id) return;
       if(el.dataset.vp){ await ML.setStage(id, el.dataset.vp, { stage: el.value }); ML.rerender(); }
+      else if('geo' in el.dataset){ await ML.updateAccount(id, { geo: el.value || null }); ML.rerender(); }
       else if('am' in el.dataset){ await ML.updateAccount(id, { am: el.value || null }); ML.rerender(); }
       else if(el.dataset.note){ await ML.setStage(id, el.dataset.note, { note: el.value }); ML.toast('Guardado'); }
       else if(el.dataset.rev){ await ML.setStage(id, el.dataset.rev, { review_date: el.value || null }); ML.toast('Guardado'); }
@@ -561,7 +572,7 @@
     var peoplePanel = '<div class="panel"><div class="filters" style="margin-bottom:6px"><h2 style="margin:0">Responsables (AM)</h2>' + sortSel('people') + '</div><div class="tablewrap"><table style="min-width:0"><thead><tr><th>Nombre</th><th>Uso</th><th>Activo</th><th></th></tr></thead><tbody>' + people + '</tbody></table></div>' +
       '<form class="filters editable" id="addPerson" style="margin:8px 0 0"><input placeholder="Nuevo responsable…" required><button class="btn sm primary" type="submit">Añadir</button></form>' +
       '<p class="muted" style="font-size:12px">Renombrar actualiza también las cuentas y tareas. Borrar deja esas cuentas y tareas sin responsable.</p></div>';
-    var lists = ['vp', 'stage', 'status', 'kind', 'pilar', 'priority'].map(cfgList).join('');
+    var lists = ['vp', 'stage', 'status', 'kind', 'pilar', 'priority'].concat(ML.hasGeo ? ['geo'] : []).map(cfgList).join('');
     return warn + '<p class="muted" style="margin-top:0;max-width:820px">Renombrar un valor cambia cómo se ve en toda la app; los datos existentes siguen enlazados por su clave interna. 🔒 = valor que la lógica necesita (se renombra, no se borra). «Activo» desmarcado lo oculta de los desplegables sin tocar los datos antiguos. Las cuentas se editan en la pestaña Cuentas.</p><div class="cfgstack">' + peoplePanel + lists + '</div>';
   }
   function bindConfig(v){

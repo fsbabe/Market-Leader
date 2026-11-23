@@ -11,11 +11,12 @@
     status: [['pendiente', 'Pendiente'], ['en_curso', 'En curso'], ['bloqueada', 'Bloqueada'], ['hecha', 'Hecha']],
     kind: [['reunion', 'Reunión'], ['presentar_vp', 'Presentar VP'], ['propuesta', 'Propuesta'], ['otro', 'Otro']],
     pilar: [['vp', 'VP'], ['clientes', 'Clientes'], ['partnership', 'Partnership'], ['marketing', 'Marketing']],
-    priority: [['alta', 'Alta'], ['media', 'Media'], ['baja', 'Baja']]
+    priority: [['alta', 'Alta'], ['media', 'Media'], ['baja', 'Baja']],
+    geo: [['es', 'España'], ['pt', 'Portugal'], ['latam_co', 'LATAM · Colombia'], ['latam_pe', 'LATAM · Perú'], ['latam_mx', 'LATAM · México'], ['latam_br', 'LATAM · Brasil']]
   };
   // Valores que la lógica de la app necesita: se pueden renombrar y cambiar de color, pero no borrar ni desactivar
-  ML.SYSTEM = { vp: [], stage: ['sin_contacto', 'no_aplica'], status: ['pendiente', 'hecha'], kind: ['otro'], pilar: ['vp', 'clientes'], priority: ['media'] };
-  ML.LIST_TITLES = { vp: 'Propuestas de valor (VP)', stage: 'Etapas de la cuenta', status: 'Estados de tarea', kind: 'Tipos de tarea', pilar: 'Pilares', priority: 'Prioridades' };
+  ML.SYSTEM = { vp: [], stage: ['sin_contacto', 'no_aplica'], status: ['pendiente', 'hecha'], kind: ['otro'], pilar: ['vp', 'clientes'], priority: ['media'], geo: [] };
+  ML.LIST_TITLES = { vp: 'Propuestas de valor (VP)', stage: 'Etapas de la cuenta', status: 'Estados de tarea', kind: 'Tipos de tarea', pilar: 'Pilares', priority: 'Prioridades', geo: 'Geografías (de las cuentas)' };
   ML.LIST_FIELD = { status: 'status', kind: 'kind', pilar: 'pilar', priority: 'priority' };
   var PALETTE = ['#c9a227', '#6aa5e6', '#8e7cc3', '#e08a3c', '#2e8b57', '#c0392b', '#9aa3b5', '#2a9d8f', '#d6559b', '#7a8f3a'];
   var NOT_ADVANCE = ['no_aplica', 'aparcada', 'perdida'];
@@ -67,7 +68,7 @@
     var act = function(k){ return src[k].filter(function(r){ return r.active || ML.SYSTEM[k].indexOf(r.key) >= 0; }); };
     var pairs = function(k){ var a = act(k).map(function(r){ return [r.key, r.label]; }); a._kind = k; return a; };
     ML.VPS = act('vp').map(function(r){ return { k: r.key, label: r.label }; });
-    ML.STAGES = pairs('stage'); ML.STATUS = pairs('status'); ML.KINDS = pairs('kind'); ML.PILARES = pairs('pilar'); ML.PRIOS = pairs('priority');
+    ML.STAGES = pairs('stage'); ML.STATUS = pairs('status'); ML.KINDS = pairs('kind'); ML.PILARES = pairs('pilar'); ML.PRIOS = pairs('priority'); ML.GEOS = pairs('geo');
     ML.ACTIVE_STAGES = ML.STAGES.map(function(x){ return x[0]; }).filter(function(k){ return NOT_ADVANCE.indexOf(k) < 0 && k !== 'ganada'; });
   };
   ML.applyLists(null);
@@ -141,6 +142,7 @@
     var res = await Promise.all([q('ml_people', 'sort'), q('ml_accounts', 'name'), q('ml_stages'), q('ml_tasks', 'id'), q('ml_lists', 'sort')]);
     for(var i = 0; i < 4; i++){ if(res[i].error){ ML.toast('Error al leer datos: ' + res[i].error.message, true); return false; } }
     ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data; ML.resort();
+    ML.hasGeo = !ML.s.accounts.length || ('geo' in ML.s.accounts[0]);
     ML.hasHier = !ML.s.tasks.length || ('task_no' in ML.s.tasks[0]);
     ML.listsOk = !res[4].error && !!res[4].data && res[4].data.length > 0;
     ML.s.lists = ML.listsOk ? res[4].data : [];
@@ -151,6 +153,13 @@
 
   // ---------- Jerarquía: tarea → subtareas (un solo nivel) ----------
   // Una fila de ml_tasks es TAREA si parent_id es null y SUBTAREA si no. Código: tarea "01", subtarea "01-01".
+  ML.hasGeo = true;    // false si falta ejecutar migration_v5.sql
+  // Geografía: «LATAM (todos)» agrupa los países LATAM; «(sin geografía)» = cuentas sin asignar
+  ML.isLatam = function(key){ var r = (ML.rows.geo || []).filter(function(x){ return x.key === key; })[0]; return /^latam/i.test(key || '') || !!(r && /^latam/i.test(r.label)); };
+  ML.geoItems = function(){ return [['__latam', 'LATAM (todos)']].concat(ML.GEOS, [['__none', '(sin geografía)']]); };
+  ML.geoMatch = function(sel, key){
+    return sel.some(function(k){ return k === '__none' ? !key : k === '__latam' ? (!!key && ML.isLatam(key)) : k === key; });
+  };
   ML.hasHier = true;   // false si falta ejecutar migration_v4.sql
   ML.pad = function(n){ n = +n; return (n < 10 ? '0' : '') + n; };
   ML.isSub = function(t){ return !!(t && t.parent_id); };
@@ -299,6 +308,7 @@
   function usedBy(kind, key){
     if(kind === 'vp') return ML.s.tasks.filter(function(t){ return t.vp === key; }).length + ML.s.stages.filter(function(x){ return x.vp === key && x.stage !== 'no_aplica'; }).length;
     if(kind === 'stage') return ML.s.stages.filter(function(x){ return x.stage === key; }).length;
+    if(kind === 'geo') return ML.s.accounts.filter(function(a){ return a.geo === key; }).length;
     var f = ML.LIST_FIELD[kind]; return ML.s.tasks.filter(function(t){ return t[f] === key; }).length;
   }
   ML.listUsed = usedBy;
