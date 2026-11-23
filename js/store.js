@@ -182,6 +182,16 @@
     if(r.error){ await fail(r.error); return null; }
     ML.s.tasks.push(r.data); return r.data;
   };
+  // La fecha de una tarea nunca es anterior a la de su última subtarea: si lo es, se sube a esa fecha
+  ML.syncDue = async function(taskId){
+    var t = ML.task(taskId); if(!t || t.parent_id) return false;
+    var max = ''; ML.childrenOf(taskId).forEach(function(k){ if(k.due && k.due > max) max = k.due; });
+    if(!max || (t.due && t.due >= max)) return false;
+    t.due = max;
+    var r = await ML.sb.from('ml_tasks').update({ due: max }).eq('id', taskId);
+    if(r.error){ await fail(r.error); return false; }
+    return true;
+  };
   ML.addSubtask = async function(parentId, f){
     var p = ML.task(parentId); if(!p || p.parent_id) return null;
     var n = (p.sub_counter || 0) + 1;
@@ -194,7 +204,7 @@
     p.sub_counter = n;
     var r = await ML.sb.from('ml_tasks').insert(row).select().single();
     if(r.error){ await fail(r.error); return null; }
-    ML.s.tasks.push(r.data); return r.data;
+    ML.s.tasks.push(r.data); await ML.syncDue(parentId); return r.data;
   };
   // Tarea → subtarea de otra tarea (o mover una subtarea a otra tarea). Devuelve null si va bien, o un texto de error.
   ML.moveUnder = async function(id, parentId){
@@ -211,6 +221,7 @@
     t.parent_id = parentId; t.sub_no = n;
     var r = await ML.sb.from('ml_tasks').update({ parent_id: parentId, sub_no: n }).eq('id', id);
     if(r.error){ await fail(r.error); return 'No se pudo guardar'; }
+    await ML.syncDue(parentId);
     return null;
   };
   // Subtarea → tarea: recupera su número de tarea anterior si lo tenía y hereda cuenta, VP y pilar de su tarea padre
@@ -228,6 +239,7 @@
     Object.keys(patch).forEach(function(k){ t[k] = patch[k]; });
     var r = await ML.sb.from('ml_tasks').update(patch).eq('id', id);
     if(r.error){ await fail(r.error); return false; }
+    if('due' in patch) await ML.syncDue(t.parent_id || t.id);
     return true;
   };
   ML.deleteTask = async function(id){

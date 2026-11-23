@@ -210,7 +210,7 @@
     var actions = sub
       ? '<button class="btn sm" data-a="move" title="Cambiar de tarea">⇄</button> <button class="btn sm" data-a="promote" title="Convertir en tarea">↱</button> '
       : (ML.hasHier ? '<button class="btn sm" data-a="addsub" title="Añadir subtarea">＋</button> <button class="btn sm" data-a="tosub" title="Convertir en subtarea de otra tarea">↳</button> ' : '');
-    r = '<tr class="u-' + u + (sub ? ' sub' : '') + (n.self || sub ? '' : ' ctx') + '" data-id="' + t.id + '">' +
+    r = '<tr class="u-' + u + (sub ? ' sub' : '') + (kids.length && collapsed ? ' cmp' : '') + (n.self || sub ? '' : ' ctx') + '" data-id="' + t.id + '">' +
       '<td class="act editable"><input type="checkbox" data-f="done"' + (t.status === 'hecha' ? ' checked' : '') + ' title="Marcar hecha"></td>' +
       '<td class="editable"><div class="tagline">' + tag + '</div><input class="title" data-f="title" value="' + esc(t.title) + '"><textarea class="cm" data-f="note" rows="1" placeholder="Comentarios…">' + esc(t.note) + '</textarea></td>' +
       (sub ? '<td class="inh" title="Heredado de la tarea">' + esc(accName(e.account_id) || '—') + '</td><td class="inh">' + esc(e.vp ? ML.vpLabel(e.vp) : '—') + '</td>'
@@ -252,7 +252,7 @@
       '<input data-flt="q" placeholder="Buscar (texto o código 01-02)…" value="' + esc(f.q) + '">' +
       '<select id="grp">' + opts([['', 'Sin agrupar'], ['owner', 'Agrupar: responsable'], ['account', 'Agrupar: cuenta'], ['vp', 'Agrupar: VP']], ML.ui.group) + '</select>' +
       '<button class="btn sm" id="clr">Limpiar</button><span class="muted">' + nodes.length + ' tareas · ' + nsub + ' subtareas</span>' +
-      '<button class="btn sm" id="exp-all">Expandir todo</button><button class="btn sm" id="col-all">Contraer todo</button>' +
+      '<button class="btn sm" id="exp-all">▾ Expandir todo</button><button class="btn sm" id="col-all">▸ Contraer todo</button>' +
       '<span style="flex:1"></span><button class="btn sm editable" id="imp-paste">📋 Pegar tareas</button><button class="btn sm editable" id="imp">⬆ Importar archivo JSON</button><input type="file" id="impf" accept="application/json,.json,text/plain" hidden><button class="btn sm" id="exp">⬇ Exportar CSV</button></div>';
     var body = '', last = null;
     nodes.forEach(function(n){
@@ -369,10 +369,12 @@
         if(f === 'account_id' && el.value && !t.owner){ var a = ML.account(el.value); if(a && a.am) patch.owner = a.am; }
       }
       else if(f === 'owner') patch.owner = el.value || null;
-      else if(f === 'due') patch.due = el.value || null;
+      else if(f === 'due') patch.due = el.value || null;   // si es tarea con subtareas, ML.syncDue la mantiene >= la última subtarea
       else if(f === 'title'){ if(!el.value.trim()){ ML.rerender(); return; } patch.title = el.value.trim(); }
       else patch[f] = el.value;
-      await ML.updateTask(id, patch); ML.rerender();
+      var before = patch.due; await ML.updateTask(id, patch);
+      if(f === 'due'){ var tt = ML.task(id); if(tt && !tt.parent_id && (tt.due || null) !== (before || null)) ML.toast('La fecha de la tarea no puede ser anterior a la de su última subtarea (' + ML.fmt(tt.due) + ')'); else if(tt && tt.parent_id){ var pp = ML.parentOf(tt); if(pp && pp.due === tt.due && before) ML.toast('Fecha de la tarea ' + ML.code(pp) + ' ajustada a ' + ML.fmt(pp.due)); } }
+      ML.rerender();
     });
     tb.addEventListener('submit', async function(e){
       var f = e.target; if(!f.dataset.addsub) return; e.preventDefault();
