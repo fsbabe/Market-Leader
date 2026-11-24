@@ -427,18 +427,19 @@
         var s = ML.stageOf(a.id, v.k), st = s ? s.stage : 'no_aplica';
         return '<td class="editable"><select class="stsel st-' + st + '"' + stStyle(st, ';color:#fff') + ' data-vp="' + v.k + '">' + opts(ML.STAGES, st) + '</select></td>';
       }).join('');
-      var r = '<tr data-acc="' + esc(a.id) + '"' + (a.active ? '' : ' style="opacity:.55"') + '><td><b>' + esc(a.name) + '</b>' + (a.active ? '' : ' <span class="muted">(inactiva)</span>') + '</td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + (G ? '<td class="editable"><select data-geo>' + opts(ML.GEOS, a.geo, '—') + '</select></td>' : '') + tds +
+      var r = '<tr data-acc="' + esc(a.id) + '"' + (a.active ? '' : ' style="opacity:.55"') + '><td><b>' + esc(a.name) + '</b>' + (a.active ? '' : ' <span class="muted">(inactiva)</span>') + (ML.isParked(a) ? ' <span class="pill soon" title="Todas las VP aparcadas">⏸ aparcada</span>' : '') + '</td><td class="editable"><select data-am>' + peopleOpts(a.am, '—') + '</select></td>' + (G ? '<td class="editable"><select data-geo>' + opts(ML.GEOS, a.geo, '—') + '</select></td>' : '') + tds +
         '<td>' + (opn[a.id] ? '<a href="#" data-go="' + esc(a.id) + '">' + opn[a.id] + '</a>' : '<span class="muted">0</span>') + '</td>' +
         '<td class="act"><button class="btn sm" data-detail>' + (ui.openAcc === a.id ? '▲' : '▼') + '</button></td></tr>';
       if(ui.openAcc === a.id){
-        r += '<tr><td colspan="' + NC + '" class="note editable"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
-          ML.VPS.map(function(v){ var s = ML.stageOf(a.id, v.k) || {}; return '<div><b>' + esc(v.label) + '</b><br><textarea data-note="' + v.k + '" placeholder="Notas (caso de uso, motivo de aparcado…)">' + esc(s.note) + '</textarea><br><label class="muted">Revisar el <input type="date" data-rev="' + v.k + '" value="' + esc(s.review_date || '') + '"></label></div>'; }).join('') +
-          '<div><b>Cuenta</b><br><input data-accname value="' + esc(a.name) + '" style="width:100%;margin:3px 0"><br><label><input type="checkbox" data-accactive' + (a.active ? ' checked' : '') + '> Activa (visible en listas y desplegables)</label><br><textarea data-accnote placeholder="Nota de la cuenta">' + esc(a.note) + '</textarea><br><button class="btn sm danger" data-delacc>Borrar cuenta</button></div></div></td></tr>';
+        r += '<tr class="accdet"><td colspan="' + (G ? 3 : 2) + '" class="note editable"><b>Cuenta</b><br><input data-accname value="' + esc(a.name) + '" style="width:100%;margin:3px 0"><br><label><input type="checkbox" data-accactive' + (a.active ? ' checked' : '') + '> Activa (visible en listas y desplegables)</label><br><textarea data-accnote placeholder="Nota de la cuenta">' + esc(a.note) + '</textarea><br><button class="btn sm" data-park="' + (ML.isParked(a) ? 'off' : 'on') + '" title="' + (ML.isParked(a) ? 'Devuelve cada VP a la etapa que tenía antes de aparcar' : 'Pone todas las VP activas en «Aparcada». No toca No aplica, Ganada ni Perdida') + '">' + (ML.isParked(a) ? '▶ Reactivar cuenta' : '⏸ Aparcar cuenta (todas las VP)') + '</button> <button class="btn sm danger" data-delacc>Borrar cuenta</button></td>' +
+          ML.VPS.map(function(v){ var s = ML.stageOf(a.id, v.k) || {}; return '<td class="note editable"><b>' + esc(v.label) + '</b><br><textarea data-note="' + v.k + '" placeholder="Notas (caso de uso, motivo de aparcado…)">' + esc(s.note) + '</textarea><br><label class="muted">Revisar el <input type="date" data-rev="' + v.k + '" value="' + esc(s.review_date || '') + '"></label></td>'; }).join('') +
+          '<td colspan="2" class="note"></td></tr>';
       }
       return r;
     }).join('') || '<tr><td colspan="' + NC + '" class="empty">Sin cuentas</td></tr>';
+    var warnP = ML.hasPark ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:12px"><b>Aparcar cuenta desactivado.</b> Ejecuta <code>supabase/migration_v6.sql</code> en Supabase y recarga.</div>';
     var warnG = ML.hasGeo ? '' : '<div class="panel" style="border-color:var(--over);margin-bottom:12px"><b>Geografía desactivada.</b> Ejecuta <code>supabase/migration_v5.sql</code> en Supabase y recarga.</div>';
-    var cd = accCols(); return warnG + head + '<div class="tablewrap"><table class="fx" data-cols="acc' + cd.length + '">' + colgroup('acc' + cd.length, cd) + th + '<tbody>' + body + '</tbody></table></div>';
+    var cd = accCols(); return warnP + warnG + head + '<div class="tablewrap"><table class="fx" data-cols="acc' + cd.length + '">' + colgroup('acc' + cd.length, cd) + th + '<tbody>' + body + '</tbody></table></div>';
   }
   function bindAccounts(v){
     var ui = ML.ui;
@@ -468,10 +469,11 @@
       else if('accactive' in el.dataset){ await ML.updateAccount(id, { active: el.checked }); ML.rerender(); }
     });
     tb.addEventListener('click', async function(e){
-      var b = e.target.closest('[data-detail],[data-delacc]'); if(!b) return;
+      var b = e.target.closest('[data-detail],[data-delacc],[data-park]'); if(!b) return;
       var tr = b.closest('tr'); if(!tr.dataset.acc) tr = tr.previousElementSibling;
       var id = tr.dataset.acc;
       if(b.hasAttribute('data-detail')){ ui.openAcc = ui.openAcc === id ? null : id; ML.rerender(); }
+      else if(b.hasAttribute('data-park')){ if(b.dataset.park === 'on'){ if(confirm('¿Aparcar la cuenta? Todas sus VP activas pasarán a «Aparcada» (puedes reactivarla después).')){ if(await ML.parkAccount(id)) ML.toast('Cuenta aparcada'); } } else if(await ML.unparkAccount(id)) ML.toast('Cuenta reactivada'); ML.rerender(); }
       else if(confirm('¿Borrar la cuenta y sus etapas? Sus tareas se conservarán sin cuenta.')){ await ML.deleteAccount(id); ui.openAcc = null; ML.rerender(); }
     });
   }

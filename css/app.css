@@ -170,3 +170,7 @@ select.cpill option{background:var(--card);color:var(--ink)}
 tr.cmp textarea.cm{display:none}
 .tg{font-size:15px;line-height:1;padding:2px 6px;border-radius:6px}
 .tg:hover{background:rgba(128,128,128,.2)}
+
+tr.accdet td{vertical-align:top;padding-top:8px}
+tr.accdet textarea{width:100%;min-height:70px;box-sizing:border-box}
+tr.accdet input[type=date]{max-width:100%}

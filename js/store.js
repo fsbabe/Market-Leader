@@ -142,6 +142,7 @@
     var res = await Promise.all([q('ml_people', 'sort'), q('ml_accounts', 'name'), q('ml_stages'), q('ml_tasks', 'id'), q('ml_lists', 'sort')]);
     for(var i = 0; i < 4; i++){ if(res[i].error){ ML.toast('Error al leer datos: ' + res[i].error.message, true); return false; } }
     ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data; ML.resort();
+    ML.hasPark = !ML.s.accounts.length || ('parked_prev' in ML.s.accounts[0]);
     ML.hasGeo = !ML.s.accounts.length || ('geo' in ML.s.accounts[0]);
     ML.hasHier = !ML.s.tasks.length || ('task_no' in ML.s.tasks[0]);
     ML.listsOk = !res[4].error && !!res[4].data && res[4].data.length > 0;
@@ -153,6 +154,8 @@
 
   // ---------- Jerarquía: tarea → subtareas (un solo nivel) ----------
   // Una fila de ml_tasks es TAREA si parent_id es null y SUBTAREA si no. Código: tarea "01", subtarea "01-01".
+  ML.hasPark = true;   // false si falta ejecutar migration_v6.sql
+  ML.isParked = function(a){ return !!(a && a.parked_prev); };
   ML.hasGeo = true;    // false si falta ejecutar migration_v5.sql
   // Geografía: «LATAM (todos)» agrupa los países LATAM; «(sin geografía)» = cuentas sin asignar
   ML.isLatam = function(key){ var r = (ML.rows.geo || []).filter(function(x){ return x.key === key; })[0]; return /^latam/i.test(key || '') || !!(r && /^latam/i.test(r.label)); };
@@ -266,6 +269,24 @@
     var r = await ML.sb.from('ml_stages').upsert({ account_id: accountId, vp: vp, stage: s.stage, note: s.note || '', review_date: s.review_date || null }, { onConflict: 'account_id,vp' });
     if(r.error){ await fail(r.error); return false; }
     return true;
+  };
+
+  // Aparcar una cuenta: todas sus VP activas pasan a «Aparcada» (se guarda la etapa anterior para reactivar).
+  // No se tocan las VP «No aplica», «Ganada» ni «Perdida».
+  ML.parkAccount = async function(id){
+    var a = ML.account(id); if(!a) return false;
+    if(!ML.hasPark){ ML.toast('Falta ejecutar migration_v6.sql en Supabase', true); return false; }
+    if(!ML.STAGES.some(function(x){ return x[0] === 'aparcada'; })){ ML.toast('No existe la etapa «Aparcada» (revisa Configuración)', true); return false; }
+    var prev = {};
+    ML.VPS.forEach(function(v){ var st = ML.stageOf(id, v.k); if(st && ['no_aplica', 'aparcada', 'ganada', 'perdida'].indexOf(st.stage) < 0) prev[v.k] = st.stage; });
+    for(var vp in prev){ if(!(await ML.setStage(id, vp, { stage: 'aparcada' }))) return false; }
+    return ML.updateAccount(id, { parked_prev: prev });
+  };
+  ML.unparkAccount = async function(id){
+    var a = ML.account(id); if(!a || !a.parked_prev) return false;
+    var prev = a.parked_prev;
+    for(var vp in prev){ var st = ML.stageOf(id, vp); if(st && st.stage === 'aparcada'){ if(!(await ML.setStage(id, vp, { stage: prev[vp] }))) return false; } }
+    return ML.updateAccount(id, { parked_prev: null });
   };
 
   // ---------- Cuentas y responsables ----------
