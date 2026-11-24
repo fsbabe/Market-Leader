@@ -143,6 +143,7 @@
     for(var i = 0; i < 4; i++){ if(res[i].error){ ML.toast('Error al leer datos: ' + res[i].error.message, true); return false; } }
     ML.s.people = res[0].data; ML.s.accounts = res[1].data; ML.s.stages = res[2].data; ML.s.tasks = res[3].data; ML.resort();
     ML.hasPark = !ML.s.accounts.length || ('parked_prev' in ML.s.accounts[0]);
+    if(!ML.hasPark) ML.s.accounts.forEach(function(a){ try{ var v = localStorage.getItem('ml_parked_' + a.id); if(v) a.parked_prev = JSON.parse(v); }catch(e){} });
     ML.hasGeo = !ML.s.accounts.length || ('geo' in ML.s.accounts[0]);
     ML.hasHier = !ML.s.tasks.length || ('task_no' in ML.s.tasks[0]);
     ML.listsOk = !res[4].error && !!res[4].data && res[4].data.length > 0;
@@ -273,20 +274,27 @@
 
   // Aparcar una cuenta: todas sus VP activas pasan a «Aparcada» (se guarda la etapa anterior para reactivar).
   // No se tocan las VP «No aplica», «Ganada» ni «Perdida».
+  // Sin migration_v6 la etapa anterior se guarda solo en este navegador (las etapas sí se cambian en la base de datos)
+  async function saveParked(a, prev){
+    if(ML.hasPark) return ML.updateAccount(a.id, { parked_prev: prev });
+    a.parked_prev = prev;
+    try{ if(prev) localStorage.setItem('ml_parked_' + a.id, JSON.stringify(prev)); else localStorage.removeItem('ml_parked_' + a.id); }catch(e){}
+    if(prev) ML.toast('Aparcada. Ejecuta migration_v6.sql para poder reactivarla desde otros dispositivos', false);
+    return true;
+  }
   ML.parkAccount = async function(id){
     var a = ML.account(id); if(!a) return false;
-    if(!ML.hasPark){ ML.toast('Falta ejecutar migration_v6.sql en Supabase', true); return false; }
     if(!ML.STAGES.some(function(x){ return x[0] === 'aparcada'; })){ ML.toast('No existe la etapa «Aparcada» (revisa Configuración)', true); return false; }
     var prev = {};
     ML.VPS.forEach(function(v){ var st = ML.stageOf(id, v.k); if(st && ['no_aplica', 'aparcada', 'ganada', 'perdida'].indexOf(st.stage) < 0) prev[v.k] = st.stage; });
     for(var vp in prev){ if(!(await ML.setStage(id, vp, { stage: 'aparcada' }))) return false; }
-    return ML.updateAccount(id, { parked_prev: prev });
+    return saveParked(a, prev);
   };
   ML.unparkAccount = async function(id){
     var a = ML.account(id); if(!a || !a.parked_prev) return false;
     var prev = a.parked_prev;
     for(var vp in prev){ var st = ML.stageOf(id, vp); if(st && st.stage === 'aparcada'){ if(!(await ML.setStage(id, vp, { stage: prev[vp] }))) return false; } }
-    return ML.updateAccount(id, { parked_prev: null });
+    return saveParked(a, null);
   };
 
   // ---------- Cuentas y responsables ----------
